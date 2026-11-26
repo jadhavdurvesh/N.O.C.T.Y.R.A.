@@ -12,3 +12,4 @@ zeroize.workspace = true
 tempfile = "3"
 ed25519-dalek.workspace = true
 rand_core.workspace = true
+noctyra-keystore = { path = "../../crates/noctyra-keystore" }
