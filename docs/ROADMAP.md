@@ -1,27 +1,30 @@
 # NOCTYRA Roadmap
 
-## M0 — Repository foundation
-- [x] Private repository foundation
-- [x] Workspace skeleton design
-- [x] Architecture, threat model, and format drafts
-- [x] CONSTELLATION protocol concept
+## M0 — Repository and governance foundation
+- [x] Private repository and project structure
+- [x] Architecture and threat-model documents
+- [x] Restricted proprietary license and agreement template
+- [x] CONSTELLATION protocol design draft
 
-## M1 — Cryptographic core
-- [ ] CSPRNG-backed salt and key generation
-- [ ] Argon2id key derivation with parameter bounds
-- [ ] DEK lifecycle and wrapping
-- [ ] XChaCha20-Poly1305 authenticated encryption
-- [ ] Wrong-password and tamper tests
-- [ ] Secret-handling review
+## M1 — Cryptographic and container core
+- [x] Argon2id password-based key derivation baseline
+- [x] XChaCha20-Poly1305 authenticated encryption baseline
+- [x] NCT v1 binary envelope draft implementation
+- [x] Wrong-password and tamper test cases
+- [ ] Run and verify workspace tests in CI
+- [ ] Independent review of crypto API and memory handling
+- [ ] Define password policy and KDF profile migration
+- [ ] Add streaming support and key-envelope/recovery-key design
 
-## M2 — NCT container
-- [ ] Freeze byte-level format specification
-- [ ] Encrypted manifest
-- [ ] Bounded chunking and finalization
-- [ ] Truncation, reorder, duplicate, and mutation tests
+## M2 — File archive system
+- [ ] Encrypted file manifest
+- [ ] Safe multi-file archive creation and extraction
+- [ ] Path traversal and symlink protections
+- [ ] Bounded chunking and authenticated finalization
+- [ ] Atomic output and overwrite protection
 
 ## M3 — Image laboratory
-- [ ] PNG/BMP input validation
+- [ ] PNG/BMP input validation and metadata policy
 - [ ] Capacity estimation
 - [ ] Reversible experimental carrier codec
 - [ ] Round-trip and distortion measurements
@@ -42,15 +45,15 @@
 
 ## M6 — Desktop
 - [ ] Tauri 2 shell
-- [ ] React + TypeScript UI
-- [ ] Vault, encode, extract, recovery workflows
+- [ ] React + TypeScript interface
+- [ ] Vault, encrypt, decrypt, encode, extract and recovery workflows
 - [ ] Cross-platform packaging
 
 ## M7 — Release readiness
-- [ ] Windows, Linux, macOS tests
+- [ ] Windows, Linux and macOS tests
 - [ ] Fuzzing and dependency audit
 - [ ] Independent security review
 - [ ] Reproducible release process
 - [ ] Private v1.0 release
 
-No milestone is complete solely because it compiles.
+No milestone is complete solely because it compiles. No security assurance level is claimed until its evidence requirements are met.
