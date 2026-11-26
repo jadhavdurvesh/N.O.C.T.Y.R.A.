@@ -458,6 +458,67 @@ fn run() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
+    if command == "constellation-diagnose" {
+        if paths.len() < 5 {
+            return Err("usage: noctyra constellation-diagnose <manifest.ncmf> <registry.ncts> <trusted-fingerprint> <carrier1.png> [more-carriers...]".into());
+        }
+        let manifest_bytes = Zeroizing::new(read_limited(Path::new(&paths[0]), noctyra_core::MAX_MANIFEST_LEN as u64, "signed manifest")?);
+        let registry_bytes = Zeroizing::new(read_limited(Path::new(&paths[1]), noctyra_core::MAX_TRUST_STORE_BYTES as u64, "trust registry")?);
+        println!("Unlock the local trusted-sender registry.");
+        let registry_password = password(false)?;
+        let store = noctyra_core::open_trust_store(registry_password.as_bytes(), &registry_bytes)?;
+        let trusted_key = store.trusted_public_key(&paths[2].to_string_lossy())?;
+        let verified = noctyra_core::verify_signed_manifest(&manifest_bytes, &trusted_key)?;
+
+        let total = verified.data_shards() as usize + verified.parity_shards() as usize;
+        let mut seen = vec![false; total];
+        let mut valid = Vec::new();
+        let mut invalid = 0usize;
+        for path in &paths[3..] {
+            let display = Path::new(path).display();
+            let candidate = (|| -> Result<(u16, Vec<u8>), Box<dyn Error>> {
+                let image_bytes = Zeroizing::new(read_carrier_file(Path::new(path))?);
+                let carrier = noctyra_core::CarrierImage::load(&image_bytes)?;
+                let shard = Zeroizing::new(noctyra_core::extract_carrier(&carrier)?);
+                let index = noctyra_core::verify_manifest_shard(&verified, &shard)?;
+                Ok((index, shard.to_vec()))
+            })();
+            match candidate {
+                Ok((index, shard)) if !seen[index as usize] => {
+                    seen[index as usize] = true;
+                    valid.push(Zeroizing::new(shard));
+                    println!("VALID   shard {index:03}: {display}");
+                }
+                Ok((index, _)) => {
+                    invalid += 1;
+                    println!("DUPLICATE shard {index:03}: {display}");
+                }
+                Err(error) => {
+                    invalid += 1;
+                    println!("REJECTED: {display} ({error})");
+                }
+            }
+        }
+        let received = valid.len();
+        let required = verified.data_shards() as usize;
+        let missing: Vec<usize> = seen.iter().enumerate().filter_map(|(i, present)| (!present).then_some(i)).collect();
+        println!("\nTransfer: {}", blake3::Hash::from_bytes(verified.transfer_id()));
+        println!("Valid unique shards: {received}/{total}");
+        println!("Rejected or duplicate inputs: {invalid}");
+        println!("Recovery threshold: {required}");
+        if missing.is_empty() {
+            println!("Missing indexes: none");
+        } else {
+            println!("Missing indexes: {}", missing.iter().map(usize::to_string).collect::<Vec<_>>().join(", "));
+        }
+        if received >= required {
+            println!("STATUS: RECOVERABLE — run constellation-receive with the valid carriers only.");
+        } else {
+            println!("STATUS: INCOMPLETE — need {} additional valid shard(s).", required - received);
+        }
+        return Ok(());
+    }
+
     if command == "constellation-manifest-create" {
         if paths.len() < 3 { return Err("usage: noctyra constellation-manifest-create <shard1.ncrs> [more-shards...] <private-key-file> <manifest.ncmf>".into()); }
         let private_path = Path::new(&paths[paths.len() - 2]);
