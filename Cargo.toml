@@ -32,3 +32,4 @@ zstd = "0.13"
 blake3 = "1"
 serde = { version = "1", features = ["derive"] }
 postcard = { version = "1", features = ["alloc"] }
+reed-solomon-erasure = "6"
