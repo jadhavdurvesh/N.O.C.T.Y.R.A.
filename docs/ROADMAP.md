@@ -104,10 +104,16 @@
 - [ ] Independent security review of recovery and trust-state handling
 
 ## M6 — Desktop
-- [ ] Tauri 2 shell
-- [ ] React + TypeScript interface
-- [ ] Vault, encrypt, decrypt, encode, extract and recovery workflows
-- [ ] Cross-platform packaging
+- [x] Tauri 2 shell and native file dialogs
+- [x] React + TypeScript multi-workspace interface
+- [x] File and directory encryption/decryption workflows
+- [x] PNG/BMP image concealment and extraction workflows
+- [x] CONSTELLATION fragment splitting and reassembly workflows
+- [x] Independent offline recovery-key generation and archive operations
+- [ ] Signed-manifest sender trust, multi-image Reed-Solomon recovery and resumable checkpoint UI
+- [ ] Native operation progress events, cancellation and job history
+- [ ] Cross-platform packaging, signing, icons and installer validation
+- [ ] Desktop backend integration tests and security review
 
 ## M7 — Release readiness
 - [ ] Windows, Linux and macOS tests
