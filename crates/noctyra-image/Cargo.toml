@@ -7,4 +7,5 @@ publish = false
 
 [dependencies]
 image.workspace = true
+noctyra-validation = { path = "../noctyra-validation" }
 thiserror.workspace = true
