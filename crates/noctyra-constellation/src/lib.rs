@@ -351,7 +351,8 @@ where I: IntoIterator<Item = &'a [u8]> {
     Ok(archive)
 }
 
-/// Signed recovery manifest. Its fixed binary representation is canonical.
+/// Signed recovery manifest. The signature covers the fixed header and
+/// every shard payload digest in index order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SignedManifest {
     pub transfer_id: [u8; 16],
@@ -360,11 +361,12 @@ pub struct SignedManifest {
     pub parity_shards: u16,
     pub shard_size: u32,
     pub archive_digest: [u8; 32],
+    pub shard_digests: Vec<[u8; 32]>,
     pub signer_public_key: [u8; 32],
     pub signature: [u8; 64],
 }
 
-fn manifest_body(
+fn manifest_header(
     transfer_id: &[u8; 16], archive_len: u64, data_shards: u16,
     parity_shards: u16, shard_size: u32, archive_digest: &[u8; 32],
 ) -> Vec<u8> {
@@ -380,24 +382,28 @@ fn manifest_body(
     body
 }
 
-/// Create a canonical, Ed25519-signed manifest for the exact recovery set.
-pub fn create_signed_manifest(
-    archive: &[u8], shard_size: usize, parity_shards: usize, signing_key: &SigningKey,
-) -> Result<Vec<u8>, ConstellationError> {
-    validate_nct_archive(archive)?;
-    if archive.len() > MAX_ARCHIVE_BYTES || shard_size == 0 || shard_size > MAX_FRAGMENT_DATA_BYTES || parity_shards == 0 {
-        return Err(ConstellationError::InvalidRecoveryParameters);
+/// Sign metadata and the BLAKE3 digest of every shard in the complete set.
+pub fn create_signed_manifest_for_shards<'a, I>(
+    inputs: I, signing_key: &SigningKey,
+) -> Result<Vec<u8>, ConstellationError>
+where I: IntoIterator<Item = &'a [u8]> {
+    let inputs: Vec<&[u8]> = inputs.into_iter().collect();
+    let report = inspect_recovery_shards(inputs.iter().copied())?;
+    if !report.missing_indices.is_empty() { return Err(ConstellationError::MissingFragments); }
+    let first = parse_recovery_shard(inputs[0])?;
+    let mut digests: Vec<Option<[u8; 32]>> = vec![None; first.data_shards as usize + first.parity_shards as usize];
+    for input in inputs {
+        let shard = parse_recovery_shard(input)?;
+        digests[shard.index as usize] = Some(digest(&shard.data));
     }
-    let data_shards = archive.len().div_ceil(shard_size);
-    if data_shards == 0 || data_shards + parity_shards > MAX_RECOVERY_SHARDS {
-        return Err(ConstellationError::InvalidRecoveryParameters);
-    }
-    let mut transfer_id = [0u8; 16];
-    OsRng.try_fill_bytes(&mut transfer_id).map_err(|_| ConstellationError::RandomFailure)?;
-    let body = manifest_body(
-        &transfer_id, archive.len() as u64, data_shards as u16,
-        parity_shards as u16, shard_size as u32, &digest(archive),
+    let ordered_digests: Vec<[u8; 32]> = digests.into_iter()
+        .map(|value| value.ok_or(ConstellationError::MissingFragments))
+        .collect::<Result<_, _>>()?;
+    let mut body = manifest_header(
+        &first.transfer_id, first.archive_len, first.data_shards,
+        first.parity_shards, first.shard_size, &first.archive_digest,
     );
+    for shard_digest in &ordered_digests { body.extend_from_slice(shard_digest); }
     let mut signed_message = b"NOCTYRA-CONSTELLATION-MANIFEST-V1\0".to_vec();
     signed_message.extend_from_slice(&body);
     let signature = signing_key.sign(&signed_message);
@@ -408,8 +414,8 @@ pub fn create_signed_manifest(
 }
 
 pub fn parse_signed_manifest(bytes: &[u8]) -> Result<SignedManifest, ConstellationError> {
-    let expected = MANIFEST_BODY_LEN + SIGNING_PUBLIC_KEY_LEN + MANIFEST_SIGNATURE_LEN;
-    if bytes.len() != expected || &bytes[..4] != MANIFEST_MAGIC
+    if bytes.len() < MANIFEST_BODY_LEN + SIGNING_PUBLIC_KEY_LEN + MANIFEST_SIGNATURE_LEN
+        || &bytes[..4] != MANIFEST_MAGIC
         || u16::from_le_bytes([bytes[4], bytes[5]]) != MANIFEST_VERSION {
         return Err(ConstellationError::MalformedManifest);
     }
@@ -419,8 +425,6 @@ pub fn parse_signed_manifest(bytes: &[u8]) -> Result<SignedManifest, Constellati
     let parity_shards = u16::from_le_bytes(bytes[32..34].try_into().map_err(|_| ConstellationError::MalformedManifest)?);
     let shard_size = u32::from_le_bytes(bytes[34..38].try_into().map_err(|_| ConstellationError::MalformedManifest)?);
     let mut archive_digest = [0u8; 32]; archive_digest.copy_from_slice(&bytes[38..70]);
-    let mut signer_public_key = [0u8; 32]; signer_public_key.copy_from_slice(&bytes[70..102]);
-    let mut signature = [0u8; 64]; signature.copy_from_slice(&bytes[102..166]);
     let total = data_shards as usize + parity_shards as usize;
     if archive_len == 0 || archive_len > MAX_ARCHIVE_BYTES as u64
         || data_shards == 0 || parity_shards == 0 || total > MAX_RECOVERY_SHARDS
@@ -429,29 +433,18 @@ pub fn parse_signed_manifest(bytes: &[u8]) -> Result<SignedManifest, Constellati
         || (data_shards as u64).saturating_mul(shard_size as u64) < archive_len {
         return Err(ConstellationError::MalformedManifest);
     }
-    Ok(SignedManifest { transfer_id, archive_len, data_shards, parity_shards, shard_size, archive_digest, signer_public_key, signature })
-}
-
-/// Sign metadata from an already-created, complete recovery shard set.
-pub fn create_signed_manifest_for_shards<'a, I>(
-    inputs: I, signing_key: &SigningKey,
-) -> Result<Vec<u8>, ConstellationError>
-where I: IntoIterator<Item = &'a [u8]> {
-    let inputs: Vec<&[u8]> = inputs.into_iter().collect();
-    let report = inspect_recovery_shards(inputs.iter().copied())?;
-    if !report.missing_indices.is_empty() { return Err(ConstellationError::MissingFragments); }
-    let first = parse_recovery_shard(inputs[0])?;
-    let body = manifest_body(
-        &first.transfer_id, first.archive_len, first.data_shards,
-        first.parity_shards, first.shard_size, &first.archive_digest,
-    );
-    let mut signed_message = b"NOCTYRA-CONSTELLATION-MANIFEST-V1\0".to_vec();
-    signed_message.extend_from_slice(&body);
-    let signature = signing_key.sign(&signed_message);
-    let mut output = body;
-    output.extend_from_slice(&signing_key.verifying_key().to_bytes());
-    output.extend_from_slice(&signature.to_bytes());
-    Ok(output)
+    let body_len = MANIFEST_BODY_LEN.checked_add(total.checked_mul(32).ok_or(ConstellationError::MalformedManifest)?)
+        .ok_or(ConstellationError::MalformedManifest)?;
+    let expected = body_len.checked_add(SIGNING_PUBLIC_KEY_LEN + MANIFEST_SIGNATURE_LEN)
+        .ok_or(ConstellationError::MalformedManifest)?;
+    if bytes.len() != expected { return Err(ConstellationError::MalformedManifest); }
+    let mut shard_digests = Vec::with_capacity(total);
+    for digest_bytes in bytes[MANIFEST_BODY_LEN..body_len].chunks_exact(32) {
+        let mut value = [0u8; 32]; value.copy_from_slice(digest_bytes); shard_digests.push(value);
+    }
+    let mut signer_public_key = [0u8; 32]; signer_public_key.copy_from_slice(&bytes[body_len..body_len + 32]);
+    let mut signature = [0u8; 64]; signature.copy_from_slice(&bytes[body_len + 32..]);
+    Ok(SignedManifest { transfer_id, archive_len, data_shards, parity_shards, shard_size, archive_digest, shard_digests, signer_public_key, signature })
 }
 
 /// Verify the manifest signature and pin it to an independently trusted key.
@@ -460,14 +453,14 @@ pub fn verify_signed_manifest(bytes: &[u8], trusted_public_key: &[u8; 32]) -> Re
     if &manifest.signer_public_key != trusted_public_key { return Err(ConstellationError::UntrustedManifestSigner); }
     let key = VerifyingKey::from_bytes(&manifest.signer_public_key).map_err(|_| ConstellationError::MalformedManifest)?;
     let signature = Signature::from_bytes(&manifest.signature);
-    let body = &bytes[..MANIFEST_BODY_LEN];
+    let body_len = MANIFEST_BODY_LEN + manifest.shard_digests.len() * 32;
     let mut signed_message = b"NOCTYRA-CONSTELLATION-MANIFEST-V1\0".to_vec();
-    signed_message.extend_from_slice(body);
+    signed_message.extend_from_slice(&bytes[..body_len]);
     key.verify(&signed_message, &signature).map_err(|_| ConstellationError::InvalidManifestSignature)?;
     Ok(manifest)
 }
 
-/// Ensure every supplied shard is part of the exact transfer described by a verified manifest.
+/// Ensure every supplied shard belongs to the exact signed set.
 pub fn verify_manifest_shards<'a, I>(manifest: &SignedManifest, inputs: I) -> Result<RecoveryReport, ConstellationError>
 where I: IntoIterator<Item = &'a [u8]> {
     let inputs: Vec<&[u8]> = inputs.into_iter().collect();
@@ -477,7 +470,8 @@ where I: IntoIterator<Item = &'a [u8]> {
         let shard = parse_recovery_shard(input)?;
         if shard.transfer_id != manifest.transfer_id || shard.archive_len != manifest.archive_len
             || shard.data_shards != manifest.data_shards || shard.parity_shards != manifest.parity_shards
-            || shard.shard_size != manifest.shard_size || shard.archive_digest != manifest.archive_digest {
+            || shard.shard_size != manifest.shard_size || shard.archive_digest != manifest.archive_digest
+            || digest(&shard.data) != manifest.shard_digests[shard.index as usize] {
             return Err(ConstellationError::ManifestShardMismatch);
         }
         seen[shard.index as usize] = true;
