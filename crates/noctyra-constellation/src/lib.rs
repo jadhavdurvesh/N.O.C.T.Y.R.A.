@@ -151,10 +151,14 @@ where I: IntoIterator<Item = &'a [u8]> {
     let mut fragments = Vec::new();
     for input in inputs { fragments.push(parse_fragment(input)?); }
     let first = fragments.first().ok_or(ConstellationError::MissingFragments)?;
-    let mut seen = vec![false; first.count as usize];
+    let transfer_id = first.transfer_id;
+    let archive_len = first.archive_len;
+    let count = first.count;
+    let archive_digest = first.archive_digest;
+    let mut seen = vec![false; count as usize];
     for fragment in &fragments {
-        if fragment.transfer_id != transfer_id || fragment.archive_len != archive_len_u64
-            || fragment.count != count as u32 || fragment.archive_digest != archive_digest {
+        if fragment.transfer_id != transfer_id || fragment.archive_len != archive_len
+            || fragment.count != count || fragment.archive_digest != archive_digest {
             return Err(ConstellationError::TransferMismatch);
         }
         let slot = &mut seen[fragment.index as usize];
@@ -184,8 +188,8 @@ where I: IntoIterator<Item = &'a [u8]> {
     if archive_len > MAX_ARCHIVE_BYTES { return Err(ConstellationError::ArchiveTooLarge); }
     let mut slots: Vec<Option<Vec<u8>>> = (0..count).map(|_| None).collect();
     for fragment in fragments {
-        if fragment.transfer_id != first.transfer_id || fragment.archive_len != first.archive_len
-            || fragment.count != first.count || fragment.archive_digest != first.archive_digest {
+        if fragment.transfer_id != transfer_id || fragment.archive_len != archive_len_u64
+            || fragment.count != count as u32 || fragment.archive_digest != archive_digest {
             return Err(ConstellationError::TransferMismatch);
         }
         let slot = &mut slots[fragment.index as usize];
