@@ -13,3 +13,6 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Product identity.
 pub const PRODUCT_NAME: &str = "NOCTYRA";
+
+pub use noctyra_image::{CarrierFormat, CarrierImage, ImageError};
+pub use noctyra_steganography::{embed as embed_carrier, estimate_capacity as estimate_carrier_capacity, extract as extract_carrier, Capacity as CarrierCapacity, CarrierCodecError};
