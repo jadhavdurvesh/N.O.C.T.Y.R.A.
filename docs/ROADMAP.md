@@ -61,7 +61,13 @@
 - [x] CLI multi-image PNG/BMP encode and image reassembly
 - [x] Fragment parser fuzz target and inspection fuzz target
 - [ ] Authenticated transfer manifest / sender authentication
-- [ ] Optional Reed-Solomon erasure-code design and test vectors
+- [x] NCRS v1 systematic Reed-Solomon parity shard framing
+- [x] Recovery from any k of k+r valid shards
+- [x] Duplicate, mixed-transfer, malformed and corrupt shard rejection
+- [x] Recovery CLI for raw shards and multi-image carrier sets
+- [x] Recovery shard parser fuzz target
+- [ ] Authenticated transfer manifest / sender authentication
+- [ ] End-to-end recovery image integration tests and carrier capacity benchmarks
 - [ ] End-to-end multi-image integration tests and carrier capacity benchmarks
 
 ## M5 — Recovery
