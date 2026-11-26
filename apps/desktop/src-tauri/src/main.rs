@@ -113,10 +113,125 @@ fn cleanup_staging(parent_path: String) -> Result<usize, String> {
         .map_err(|e| format!("Staging recovery cleanup failed: {e}"))
 }
 
+
+fn read_carrier(path: &str) -> Result<Vec<u8>, String> {
+    let metadata = fs::symlink_metadata(path).map_err(|e| format!("Cannot inspect carrier: {e}"))?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
+        return Err("Carrier must be a regular file, not a symbolic link.".into());
+    }
+    if metadata.len() > 64 * 1024 * 1024 {
+        return Err("Carrier image exceeds the 64 MiB input limit.".into());
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    File::open(path).map_err(|e| format!("Cannot open carrier: {e}"))?
+        .take(64 * 1024 * 1024 + 1).read_to_end(&mut bytes)
+        .map_err(|e| format!("Cannot read carrier: {e}"))?;
+    if bytes.len() > 64 * 1024 * 1024 { return Err("Carrier image grew beyond the input limit.".into()); }
+    Ok(bytes)
+}
+
+#[tauri::command]
+fn conceal_archive(archive_path: String, carrier_path: String, output_path: String) -> Result<usize, String> {
+    let archive = Zeroizing::new(read_bounded(&archive_path)?);
+    if archive.len() < 6 || &archive[..4] != b"NCTY" || !matches!(u16::from_le_bytes([archive[4], archive[5]]), 1 | 2) {
+        return Err("Select a valid encrypted NCT archive first.".into());
+    }
+    let carrier_bytes = Zeroizing::new(read_carrier(&carrier_path)?);
+    let mut carrier = noctyra_core::CarrierImage::load(&carrier_bytes)
+        .map_err(|e| format!("Cannot decode carrier image: {e}"))?;
+    let capacity = noctyra_core::estimate_carrier_capacity(&carrier);
+    let required = archive.len().saturating_add(45);
+    if required > capacity.total_bytes {
+        return Err(format!("Image capacity is insufficient: archive needs {required} bytes, available capacity is {} bytes. Use a larger PNG/BMP image or split the archive into transfer parts.", capacity.total_bytes));
+    }
+    noctyra_core::embed_carrier(&mut carrier, &archive)
+        .map_err(|e| format!("Cannot embed encrypted archive: {e}"))?;
+    let encoded = Zeroizing::new(carrier.encode(carrier.format())
+        .map_err(|e| format!("Cannot encode carrier image: {e}"))?);
+    let mut temp = temporary_output(&output_path)?;
+    temp.as_file_mut().write_all(&encoded).map_err(|e| format!("Cannot write concealed image: {e}"))?;
+    publish(temp, &output_path)?;
+    Ok(archive.len())
+}
+
+#[tauri::command]
+fn reveal_archive(carrier_path: String, output_path: String) -> Result<usize, String> {
+    let carrier_bytes = Zeroizing::new(read_carrier(&carrier_path)?);
+    let carrier = noctyra_core::CarrierImage::load(&carrier_bytes)
+        .map_err(|e| format!("Cannot decode carrier image: {e}"))?;
+    let archive = Zeroizing::new(noctyra_core::extract_carrier(&carrier)
+        .map_err(|e| format!("No valid NOCTYRA payload found: {e}"))?);
+    if archive.len() < 6 || &archive[..4] != b"NCTY" || !matches!(u16::from_le_bytes([archive[4], archive[5]]), 1 | 2) {
+        return Err("Embedded payload is not a supported encrypted NCT archive.".into());
+    }
+    let mut temp = temporary_output(&output_path)?;
+    temp.as_file_mut().write_all(&archive).map_err(|e| format!("Cannot write extracted archive: {e}"))?;
+    publish(temp, &output_path)?;
+    Ok(archive.len())
+}
+
+#[tauri::command]
+fn constellation_split(archive_path: String, output_directory: String, fragment_bytes: usize) -> Result<Vec<String>, String> {
+    if !(1024..=noctyra_core::MAX_FRAGMENT_DATA_BYTES).contains(&fragment_bytes) {
+        return Err("Choose a part size between 1 KiB and 8 MiB.".into());
+    }
+    let archive = Zeroizing::new(read_bounded(&archive_path)?);
+    if archive.len() < 6 || &archive[..4] != b"NCTY" || !matches!(u16::from_le_bytes([archive[4], archive[5]]), 1 | 2) {
+        return Err("Select a valid encrypted NCT archive first.".into());
+    }
+    let destination = Path::new(&output_directory);
+    if destination.exists() { return Err("The selected transfer folder already exists. Choose a new folder name.".into()); }
+    let fragments = noctyra_core::fragment_archive(&archive, fragment_bytes)
+        .map_err(|e| format!("Cannot split archive: {e}"))?;
+    fs::create_dir_all(destination).map_err(|e| format!("Cannot create transfer folder: {e}"))?;
+    let mut created = Vec::new();
+    for (index, frame) in fragments.iter().enumerate() {
+        let path = destination.join(format!("NOCTYRA-PART-{:04}.ncfr", index + 1));
+        let write_result = (|| -> Result<(), String> {
+            let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&path)
+                .map_err(|e| format!("Cannot create transfer part: {e}"))?;
+            file.write_all(frame).map_err(|e| format!("Cannot write transfer part: {e}"))?;
+            file.sync_all().map_err(|e| format!("Cannot flush transfer part: {e}"))?;
+            Ok(())
+        })();
+        if let Err(error) = write_result {
+            let _ = fs::remove_dir_all(destination);
+            return Err(error);
+        }
+        created.push(path.to_string_lossy().into_owned());
+    }
+    Ok(created)
+}
+
+#[tauri::command]
+fn constellation_join(fragment_paths: Vec<String>, output_path: String) -> Result<usize, String> {
+    if fragment_paths.is_empty() { return Err("Select all parts belonging to one transfer.".into()); }
+    if fragment_paths.len() > noctyra_core::MAX_FRAGMENT_COUNT { return Err("Too many transfer parts were selected.".into()); }
+    let mut frames = Vec::with_capacity(fragment_paths.len());
+    for path in &fragment_paths {
+        let metadata = fs::symlink_metadata(path).map_err(|e| format!("Cannot inspect transfer part: {e}"))?;
+        if !metadata.is_file() || metadata.file_type().is_symlink() { return Err("Transfer parts must be regular files.".into()); }
+        let limit = (noctyra_core::MAX_FRAGMENT_DATA_BYTES + noctyra_core::FRAGMENT_HEADER_LEN) as u64;
+        if metadata.len() > limit { return Err("A transfer part exceeds the configured size limit.".into()); }
+        let mut bytes = Vec::with_capacity(metadata.len() as usize);
+        File::open(path).map_err(|e| format!("Cannot open transfer part: {e}"))?
+            .take(limit + 1).read_to_end(&mut bytes).map_err(|e| format!("Cannot read transfer part: {e}"))?;
+        if bytes.len() as u64 > limit { return Err("A transfer part grew beyond the configured size limit.".into()); }
+        frames.push(bytes);
+    }
+    let references: Vec<&[u8]> = frames.iter().map(Vec::as_slice).collect();
+    let archive = Zeroizing::new(noctyra_core::reassemble_fragments(references)
+        .map_err(|e| format!("Transfer parts could not be reassembled: {e}"))?);
+    let mut temp = temporary_output(&output_path)?;
+    temp.as_file_mut().write_all(&archive).map_err(|e| format!("Cannot write reassembled archive: {e}"))?;
+    publish(temp, &output_path)?;
+    Ok(archive.len())
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![encrypt_file, decrypt_file, encrypt_directory, decrypt_directory, cleanup_staging])
+        .invoke_handler(tauri::generate_handler![encrypt_file, decrypt_file, encrypt_directory, decrypt_directory, cleanup_staging, conceal_archive, reveal_archive, constellation_split, constellation_join])
         .run(tauri::generate_context!())
         .expect("NOCTYRA desktop runtime failed");
 }
