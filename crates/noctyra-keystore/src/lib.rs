@@ -107,7 +107,7 @@ pub fn unlock_vault(password: &[u8], bytes: &[u8]) -> Result<SigningKey, KeyVaul
     let encrypted = EncryptedPayload { salt, nonce, ciphertext: bytes[VAULT_HEADER_LEN..].to_vec() };
     let seed = Zeroizing::new(decrypt(password, &encrypted, &aad(&public_key))
         .map_err(|_| KeyVaultError::Authentication)?);
-    let seed: [u8; 32] = seed.as_slice().try_into().map_err(|_| KeyVaultError::Authentication)?;
+    let seed = Zeroizing::new(<[u8; 32]>::try_from(seed.as_slice()).map_err(|_| KeyVaultError::Authentication)?);
     let signing_key = SigningKey::from_bytes(&seed);
     if signing_key.verifying_key().to_bytes() != public_key {
         return Err(KeyVaultError::KeyMismatch);
