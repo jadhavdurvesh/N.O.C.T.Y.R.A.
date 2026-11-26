@@ -1,7 +1,10 @@
 //! NOCTYRA application orchestration crate.
 //!
-//! The core coordinates independent components. Cryptographic operations belong
-//! in noctyra-crypto, never in the desktop frontend.
+//! The desktop interface must call this API rather than implementing
+//! cryptography or manipulating key material in the frontend.
+
+pub use noctyra_container::{open as open_archive, seal as seal_archive, ContainerError};
+pub use noctyra_crypto::{CryptoError, EncryptedPayload};
 
 /// Current application version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
