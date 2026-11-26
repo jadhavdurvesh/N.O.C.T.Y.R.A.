@@ -146,7 +146,7 @@ fn conceal_archive(archive_path: String, carrier_path: String, output_path: Stri
     }
     noctyra_core::embed_carrier(&mut carrier, &archive)
         .map_err(|e| format!("Cannot embed encrypted archive: {e}"))?;
-    let encoded = Zeroizing::new(carrier.encode(carrier.format())
+    let encoded = Zeroizing::new(carrier.encode(noctyra_core::CarrierFormat::Png)
         .map_err(|e| format!("Cannot encode carrier image: {e}"))?);
     let mut temp = temporary_output(&output_path)?;
     temp.as_file_mut().write_all(&encoded).map_err(|e| format!("Cannot write concealed image: {e}"))?;
