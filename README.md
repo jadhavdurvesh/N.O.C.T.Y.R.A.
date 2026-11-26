@@ -54,3 +54,16 @@ The Rust workspace contains an Argon2id + XChaCha20-Poly1305 engine, the origina
 Early engineering project; not an audited security product. No government, military, or national-security certification is claimed. Do not use as the sole protection for high-value sensitive data.
 
 Never commit passwords, recovery keys, private carrier images, real encrypted personal archives, or other secrets.
+
+
+## End-to-end transfer (experimental)
+
+NOCTYRA can package an encrypted file into a signed multi-carrier recovery set. The sender uses an encrypted identity vault; the recipient must independently trust the sender fingerprint in their encrypted trust registry.
+
+```powershell
+cargo run -p noctyra-cli -- constellation-send <input-file> <new-package-directory> <identity.nckv> <shard-bytes> <parity-shards> <cover-image1> [more-images...]
+cargo run -p noctyra-cli -- constellation-receive <output-file> <manifest.ncmf> <registry.ncts> <trusted-fingerprint> <carrier1.png> [more-carriers...]
+```
+
+Use lossless PNG/BMP images and provide enough cover images for all data and parity shards. Share the archive password separately from the carrier package. These carrier techniques are experimental and do not guarantee steganographic undetectability. See [CONSTELLATION protocol documentation](docs/CONSTELLATION.md) for the complete workflow and limitations.
+
