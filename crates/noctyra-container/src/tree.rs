@@ -8,7 +8,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs::{self, File, OpenOptions},
     io::{Read, Write},
-    path::{Component, Path, PathBuf},
+    path::{Component, Path},
 };
 use zeroize::Zeroizing;
 
@@ -36,8 +36,8 @@ fn relative_name(root: &Path, path: &Path) -> Result<String, ContainerError> {
             Component::Normal(part) => {
                 let text = part.to_str().ok_or(ContainerError::InvalidTree)?;
                 if text.is_empty() || text == "." || text == ".."
-                    || text.contains(['/', '\\', ':', '\0'])
-                    || text.ends_with([' ', '.']) {
+                    || text.chars().any(|ch| matches!(ch, '/' | '\\' | ':' | '\0'))
+                    || text.ends_with(' ') || text.ends_with('.') {
                     return Err(ContainerError::InvalidTree);
                 }
                 pieces.push(text);
@@ -132,12 +132,12 @@ impl<'a> Cursor<'a> {
 
 fn validate_archive_path(path: &str) -> Result<(), ContainerError> {
     if path.is_empty() || path.len() > MAX_PATH_BYTES || path.starts_with('/')
-        || path.contains(['\\', '\0', ':']) {
+        || path.chars().any(|ch| matches!(ch, '\\' | '\0' | ':')) {
         return Err(ContainerError::InvalidTree);
     }
     for part in path.split('/') {
         if part.is_empty() || part == "." || part == ".."
-            || part.ends_with([' ', '.']) || part.contains(['\\', '\0', ':']) {
+            || part.ends_with(' ') || part.ends_with('.') || part.chars().any(|ch| matches!(ch, '\\' | '\0' | ':')) {
             return Err(ContainerError::InvalidTree);
         }
     }
