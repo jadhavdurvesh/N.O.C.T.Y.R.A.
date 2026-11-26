@@ -11,6 +11,7 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{self, Read, Seek, SeekFrom, Write},
     path::{Component, Path, PathBuf},
+    time::{Duration, SystemTime},
 };
 
 use zeroize::{Zeroize, Zeroizing};
@@ -22,6 +23,10 @@ const MAX_ENTRIES: usize = 100_000;
 const MAX_PATH_BYTES: usize = 4_096;
 const MAX_TOTAL_PATH_BYTES: usize = 64 * 1024 * 1024;
 const MAX_DIRECTORY_BYTES: u64 = 1 << 40; // 1 TiB safety ceiling.
+const STAGING_PREFIX: &str = ".noctyra-staging-";
+const STAGING_MARKER: &str = ".noctyra-staging-marker";
+const STAGING_MARKER_CONTENT: &[u8] = b"NOCTYRA-STAGING-DIRECTORY-V1\\n";
+const MIN_STALE_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum EntryKind { Directory = 0, File = 1 }
@@ -254,7 +259,7 @@ fn read_u64<R: Read>(reader: &mut R) -> Result<u64, ContainerError> {
     Ok(u64::from_le_bytes(bytes))
 }
 
-fn validate_manifest(file: &mut File) -> Result<Vec<ExtractEntry>, ContainerError> {
+fn validate_manifest<R: Read + Seek>(file: &mut R) -> Result<Vec<ExtractEntry>, ContainerError> {
     file.seek(SeekFrom::Start(0)).map_err(io_error)?;
     let mut magic = [0u8; 4];
     file.read_exact(&mut magic).map_err(|_| ContainerError::Malformed)?;
@@ -302,7 +307,7 @@ fn validate_manifest(file: &mut File) -> Result<Vec<ExtractEntry>, ContainerErro
     }
 
     let end = file.stream_position().map_err(io_error)?;
-    let actual = file.metadata().map_err(io_error)?.len();
+    let actual = file.seek(SeekFrom::End(0)).map_err(io_error)?;
     if end != actual { return Err(ContainerError::Malformed); }
 
     for entry in &entries {
@@ -319,36 +324,110 @@ fn validate_manifest(file: &mut File) -> Result<Vec<ExtractEntry>, ContainerErro
     Ok(entries)
 }
 
-/// Authenticate an NCT v2 directory archive, validate it, then extract it.
-/// Plaintext is staged in an anonymous temporary file until final authentication succeeds.
+/// Validate an NMF2 directory manifest from an already authenticated plaintext stream.
+/// Exposed for fuzzing and diagnostics; callers must not treat this as authentication.
+pub fn validate_directory_manifest<R: Read + Seek>(reader: &mut R) -> Result<(), ContainerError> {
+    validate_manifest(reader).map(|_| ())
+}
+
+#[cfg(unix)]
+fn sync_directory(path: &Path) -> Result<(), ContainerError> {
+    File::open(path).and_then(|file| file.sync_all()).map_err(io_error)
+}
+
+#[cfg(not(unix))]
+fn sync_directory(_path: &Path) -> Result<(), ContainerError> {
+    // Rust's portable std API does not expose directory-handle flushing on
+    // every supported platform. Files are still fsynced before publication.
+    Ok(())
+}
+
+fn sync_tree_directories(root: &Path) -> Result<(), ContainerError> {
+    let mut children = fs::read_dir(root).map_err(io_error)?
+        .map(|entry| entry.map_err(io_error))
+        .collect::<Result<Vec<_>, _>>()?;
+    children.sort_by_key(|entry| entry.file_name());
+    for child in children {
+        let path = child.path();
+        let metadata = fs::symlink_metadata(&path).map_err(io_error)?;
+        if metadata.file_type().is_symlink() { return Err(ContainerError::InvalidTree); }
+        if metadata.is_dir() { sync_tree_directories(&path)?; }
+    }
+    sync_directory(root)
+}
+
+/// Remove only NOCTYRA-marked staging directories older than 24 hours.
+/// This is an explicit recovery action for leftovers after a process or machine crash.
+/// It never scans outside the supplied parent directory.
+pub fn cleanup_stale_staging(parent: impl AsRef<Path>) -> Result<usize, ContainerError> {
+    let parent = parent.as_ref();
+    let mut removed = 0usize;
+    let entries = fs::read_dir(parent).map_err(io_error)?;
+    for entry in entries {
+        let entry = entry.map_err(io_error)?;
+        let path = entry.path();
+        let name = entry.file_name();
+        if !name.to_string_lossy().starts_with(STAGING_PREFIX) { continue; }
+        let metadata = fs::symlink_metadata(&path).map_err(io_error)?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() { continue; }
+        let marker = path.join(STAGING_MARKER);
+        let marker_meta = match fs::symlink_metadata(&marker) {
+            Ok(value) => value,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(io_error(error)),
+        };
+        if !marker_meta.is_file() || marker_meta.file_type().is_symlink() { continue; }
+        let mut marker_bytes = Vec::new();
+        File::open(&marker).map_err(io_error)?.read_to_end(&mut marker_bytes).map_err(io_error)?;
+        if marker_bytes != STAGING_MARKER_CONTENT { continue; }
+        let modified = metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+        if SystemTime::now().duration_since(modified).unwrap_or_default() < MIN_STALE_AGE { continue; }
+        fs::remove_dir_all(&path).map_err(io_error)?;
+        removed = removed.checked_add(1).ok_or(ContainerError::TooLarge)?;
+    }
+    if removed > 0 { sync_directory(parent)?; }
+    Ok(removed)
+}
+
+/// Authenticate an NCT v2 directory archive, validate it, then publish a complete
+/// extracted directory with a same-filesystem no-clobber rename. Plaintext remains
+/// in a private staging directory until every file has been written and synced.
 pub fn decrypt_directory_stream(
     password: &[u8],
     reader: impl Read,
     destination: impl AsRef<Path>,
 ) -> Result<(), ContainerError> {
-    let mut staging = tempfile::tempfile().map_err(io_error)?;
-    decrypt_stream(password, reader, &mut staging)?;
-    let entries = validate_manifest(&mut staging)?;
+    let mut authenticated_plaintext = tempfile::tempfile().map_err(io_error)?;
+    decrypt_stream(password, reader, &mut authenticated_plaintext)?;
+    let entries = validate_manifest(&mut authenticated_plaintext)?;
 
     let destination = destination.as_ref();
     if destination.exists() { return Err(ContainerError::DestinationExists); }
-    fs::create_dir(destination).map_err(io_error)?;
+    let parent = destination.parent().filter(|path| !path.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let file_name = destination.file_name().ok_or(ContainerError::InvalidTree)?;
+    if file_name.is_empty() { return Err(ContainerError::InvalidTree); }
+
+    let staging = tempfile::Builder::new().prefix(STAGING_PREFIX).tempdir_in(parent).map_err(io_error)?;
+    let marker_path = staging.path().join(STAGING_MARKER);
+    let mut marker = OpenOptions::new().write(true).create_new(true).open(&marker_path).map_err(io_error)?;
+    marker.write_all(STAGING_MARKER_CONTENT).map_err(io_error)?;
+    marker.sync_all().map_err(io_error)?;
 
     let extraction = (|| -> Result<(), ContainerError> {
         let mut buffer = Zeroizing::new(vec![0u8; STREAM_CHUNK_SIZE]);
         for entry in entries {
-            let mut output = destination.to_path_buf();
+            let mut output = staging.path().to_path_buf();
             for part in entry.path.split('/') { output.push(part); }
             match entry.kind {
                 EntryKind::Directory => fs::create_dir_all(&output).map_err(io_error)?,
                 EntryKind::File => {
                     if let Some(parent) = output.parent() { fs::create_dir_all(parent).map_err(io_error)?; }
                     let mut target = OpenOptions::new().write(true).create_new(true).open(&output).map_err(io_error)?;
-                    staging.seek(SeekFrom::Start(entry.offset)).map_err(io_error)?;
+                    authenticated_plaintext.seek(SeekFrom::Start(entry.offset)).map_err(io_error)?;
                     let mut remaining = entry.size;
                     while remaining > 0 {
                         let count = usize::try_from(remaining.min(buffer.len() as u64)).unwrap_or(buffer.len());
-                        staging.read_exact(&mut buffer[..count]).map_err(|_| ContainerError::Malformed)?;
+                        authenticated_plaintext.read_exact(&mut buffer[..count]).map_err(|_| ContainerError::Malformed)?;
                         target.write_all(&buffer[..count]).map_err(io_error)?;
                         buffer[..count].zeroize();
                         remaining -= count as u64;
@@ -357,11 +436,20 @@ pub fn decrypt_directory_stream(
                 }
             }
         }
+        sync_tree_directories(staging.path())?;
         Ok(())
     })();
 
-    if extraction.is_err() { let _ = fs::remove_dir_all(destination); }
-    extraction
+    if let Err(error) = extraction { return Err(error); }
+    drop(marker);
+    fs::remove_file(&marker_path).map_err(io_error)?;
+    sync_directory(staging.path())?;
+
+    // persist_noclobber uses a same-filesystem rename and refuses to replace an
+    // existing destination, including one created after the earlier existence check.
+    staging.persist_noclobber(destination).map_err(|error| io_error(error.error))?;
+    sync_directory(parent)?;
+    Ok(())
 }
 
 #[cfg(test)]
