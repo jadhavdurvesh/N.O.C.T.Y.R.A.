@@ -464,7 +464,7 @@ pub fn decrypt_directory_stream(
         Ok(())
     })();
 
-    if let Err(error) = extraction { return Err(error); }
+    extraction?;
     drop(marker);
     sync_directory(&payload_path)?;
 
