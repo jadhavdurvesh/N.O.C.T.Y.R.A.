@@ -37,6 +37,7 @@ struct SourceEntry {
     kind: EntryKind,
     size: u64,
     source: PathBuf,
+    modified: SystemTime,
 }
 
 fn io_error(error: io::Error) -> ContainerError {
@@ -81,13 +82,13 @@ fn collect_entries(root: &Path, current: &Path, entries: &mut Vec<SourceEntry>, 
         if *path_bytes > MAX_TOTAL_PATH_BYTES { return Err(ContainerError::TooLarge); }
 
         if metadata.is_dir() {
-            entries.push(SourceEntry { path: name, kind: EntryKind::Directory, size: 0, source: path.clone() });
+            entries.push(SourceEntry { path: name, kind: EntryKind::Directory, size: 0, source: path.clone(), modified: metadata.modified().map_err(io_error)? });
             if entries.len() > MAX_ENTRIES { return Err(ContainerError::TooManyEntries); }
             collect_entries(root, &path, entries, total, path_bytes)?;
         } else if metadata.is_file() {
             *total = total.checked_add(metadata.len()).ok_or(ContainerError::TooLarge)?;
             if *total > MAX_DIRECTORY_BYTES { return Err(ContainerError::TooLarge); }
-            entries.push(SourceEntry { path: name, kind: EntryKind::File, size: metadata.len(), source: path });
+            entries.push(SourceEntry { path: name, kind: EntryKind::File, size: metadata.len(), source: path, modified: metadata.modified().map_err(io_error)? });
             if entries.len() > MAX_ENTRIES { return Err(ContainerError::TooManyEntries); }
         } else {
             return Err(ContainerError::InvalidTree);
@@ -104,6 +105,8 @@ struct DirectoryReader {
     pending_offset: usize,
     active_file: Option<File>,
     active_remaining: u64,
+    active_expected_modified: Option<SystemTime>,
+    active_expected_size: u64,
 }
 
 impl DirectoryReader {
@@ -119,6 +122,8 @@ impl DirectoryReader {
             pending_offset: 0,
             active_file: None,
             active_remaining: 0,
+            active_expected_modified: None,
+            active_expected_size: 0,
         })
     }
 
@@ -143,10 +148,13 @@ impl DirectoryReader {
             }
             let file = File::open(&entry.source)?;
             let opened_meta = file.metadata()?;
-            if !opened_meta.is_file() || opened_meta.len() != entry.size {
+            if !opened_meta.is_file() || opened_meta.len() != entry.size
+                || opened_meta.modified().ok() != Some(entry.modified) {
                 return Err(io::Error::new(io::ErrorKind::InvalidData, "source file changed after enumeration"));
             }
             self.active_remaining = entry.size;
+            self.active_expected_size = entry.size;
+            self.active_expected_modified = Some(entry.modified);
             self.active_file = Some(file);
         } else {
             self.active_remaining = 0;
@@ -173,7 +181,13 @@ impl Read for DirectoryReader {
 
             if let Some(file) = self.active_file.as_mut() {
                 if self.active_remaining == 0 {
+                    let metadata = file.metadata()?;
+                    if metadata.len() != self.active_expected_size
+                        || metadata.modified().ok() != self.active_expected_modified {
+                        return Err(io::Error::new(io::ErrorKind::InvalidData, "source file changed while being archived"));
+                    }
                     self.active_file = None;
+                    self.active_expected_modified = None;
                     continue;
                 }
                 let limit = usize::try_from(self.active_remaining.min((output.len() - written) as u64))
