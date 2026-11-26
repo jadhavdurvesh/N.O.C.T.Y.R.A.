@@ -15,3 +15,4 @@ noctyra-image = { path = "../noctyra-image" }
 noctyra-steganography = { path = "../noctyra-steganography" }
 
 noctyra-constellation = { path = "../noctyra-constellation" }
+noctyra-keystore = { path = "../noctyra-keystore" }
