@@ -458,6 +458,103 @@ fn run() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
+    if command == "recovery-keygen" {
+        if paths.len() != 1 { return Err("usage: noctyra recovery-keygen <new-recovery-key.bin>".into()); }
+        let output = Path::new(&paths[0]);
+        if output.exists() { return Err("refusing to overwrite an existing recovery key".into()); }
+        let mut key = Zeroizing::new([0u8; 32]);
+        OsRng.try_fill_bytes(&mut key[..])?;
+        write_new_key_file(output, &key[..], true)?;
+        println!("Independent 256-bit recovery credential created: {}", output.display());
+        println!("Keep this file offline and backed up. Anyone possessing it can decrypt archives created with it.");
+        return Ok(());
+    }
+
+    if command == "encrypt-with-recovery-key" || command == "decrypt-with-recovery-key" {
+        if paths.len() != 3 {
+            return Err("usage: noctyra encrypt-with-recovery-key <input-file> <output.nct> <recovery-key.bin> | decrypt-with-recovery-key <input.nct> <output-file> <recovery-key.bin>".into());
+        }
+        let key_bytes = Zeroizing::new(read_limited(Path::new(&paths[2]), 32, "recovery key")?);
+        if key_bytes.len() != 32 { return Err("recovery key must be exactly 32 bytes".into()); }
+        let input = Path::new(&paths[0]);
+        let output = Path::new(&paths[1]);
+        if command == "encrypt-with-recovery-key" {
+            encrypt_file(input, output, &key_bytes)?;
+            println!("Archive encrypted using the independent recovery-key credential: {}", output.display());
+        } else {
+            decrypt_file(input, output, &key_bytes)?;
+            println!("Archive authenticated and decrypted using the recovery key: {}", output.display());
+        }
+        return Ok(());
+    }
+
+    if command == "recovery-checkpoint-init" {
+        if paths.len() != 5 {
+            return Err("usage: noctyra recovery-checkpoint-init <manifest.ncmf> <registry.ncts> <trusted-fingerprint> <new-checkpoint.ncrp> <new-checkpoint-key.bin>".into());
+        }
+        let manifest_bytes = Zeroizing::new(read_limited(Path::new(&paths[0]), noctyra_core::MAX_MANIFEST_LEN as u64, "signed manifest")?);
+        let registry_bytes = Zeroizing::new(read_limited(Path::new(&paths[1]), noctyra_core::MAX_TRUST_STORE_BYTES as u64, "trust registry")?);
+        let registry_password = password(false)?;
+        let store = noctyra_core::open_trust_store(registry_password.as_bytes(), &registry_bytes)?;
+        let trusted_key = store.trusted_public_key(&paths[2].to_string_lossy())?;
+        let manifest = noctyra_core::verify_signed_manifest(&manifest_bytes, &trusted_key)?;
+        let total = manifest.data_shards() as usize + manifest.parity_shards() as usize;
+        let checkpoint = noctyra_core::RecoveryCheckpoint::from_verified_manifest(manifest.transfer_id(), &manifest_bytes, total)?;
+        let mut key = Zeroizing::new([0u8; 32]);
+        OsRng.try_fill_bytes(&mut key[..])?;
+        let checkpoint_path = Path::new(&paths[3]);
+        let key_path = Path::new(&paths[4]);
+        if checkpoint_path.exists() || key_path.exists() || checkpoint_path == key_path {
+            return Err("checkpoint and key must be distinct new files; refusing to overwrite".into());
+        }
+        write_new_key_file(key_path, &key[..], true)?;
+        let encoded = Zeroizing::new(checkpoint.encode(&key));
+        let mut temp = temporary_output(checkpoint_path)?;
+        temp.as_file_mut().write_all(&encoded)?;
+        publish(temp, checkpoint_path)?;
+        println!("Authenticated recovery checkpoint initialized for {total} signed shards.");
+        println!("Keep the checkpoint key separate and private. Checkpoint records are progress hints, not proof that carriers remain valid.");
+        return Ok(());
+    }
+
+    if command == "recovery-checkpoint-mark" || command == "recovery-checkpoint-status" {
+        let expected = if command == "recovery-checkpoint-mark" { 6 } else { 5 };
+        if paths.len() != expected {
+            return Err("usage: noctyra recovery-checkpoint-mark <manifest.ncmf> <registry.ncts> <trusted-fingerprint> <checkpoint.ncrp> <checkpoint-key.bin> <verified-carrier.png> | recovery-checkpoint-status <manifest.ncmf> <registry.ncts> <trusted-fingerprint> <checkpoint.ncrp> <checkpoint-key.bin>".into());
+        }
+        let manifest_bytes = Zeroizing::new(read_limited(Path::new(&paths[0]), noctyra_core::MAX_MANIFEST_LEN as u64, "signed manifest")?);
+        let registry_bytes = Zeroizing::new(read_limited(Path::new(&paths[1]), noctyra_core::MAX_TRUST_STORE_BYTES as u64, "trust registry")?);
+        let registry_password = password(false)?;
+        let store = noctyra_core::open_trust_store(registry_password.as_bytes(), &registry_bytes)?;
+        let trusted_key = store.trusted_public_key(&paths[2].to_string_lossy())?;
+        let manifest = noctyra_core::verify_signed_manifest(&manifest_bytes, &trusted_key)?;
+        let checkpoint_bytes = Zeroizing::new(read_limited(Path::new(&paths[3]), 4096, "recovery checkpoint")?);
+        let key_bytes = Zeroizing::new(read_limited(Path::new(&paths[4]), 32, "checkpoint authentication key")?);
+        let key: [u8; 32] = key_bytes.as_slice().try_into().map_err(|_| "checkpoint key must be exactly 32 bytes")?;
+        let mut checkpoint = noctyra_core::RecoveryCheckpoint::decode(&checkpoint_bytes, &key)?;
+        checkpoint.ensure_manifest(manifest.transfer_id(), &manifest_bytes)?;
+        let expected_total = manifest.data_shards() as usize + manifest.parity_shards() as usize;
+        if checkpoint.shard_count() as usize != expected_total {
+            return Err("checkpoint shard count does not match the signed manifest".into());
+        }
+        if command == "recovery-checkpoint-mark" {
+            let image_bytes = Zeroizing::new(read_carrier_file(Path::new(&paths[5]))?);
+            let carrier = noctyra_core::CarrierImage::load(&image_bytes)?;
+            let shard = Zeroizing::new(noctyra_core::extract_carrier(&carrier)?);
+            let index = noctyra_core::verify_manifest_shard(&manifest, &shard)? as usize;
+            checkpoint.mark_verified(index)?;
+            let updated = Zeroizing::new(checkpoint.encode(&key));
+            replace_private_file(Path::new(&paths[3]), &updated)?;
+            println!("Verified shard {index} recorded in the local recovery checkpoint.");
+        } else {
+            println!("Checkpoint matches the trusted signed manifest.");
+            println!("Recorded valid-at-time-of-check shards: {}/{}", checkpoint.received_count(), checkpoint.shard_count());
+            println!("Missing indexes (revalidate carriers before use): {:?}", checkpoint.missing_indices());
+            println!("A checkpoint never replaces fresh carrier and manifest verification.");
+        }
+        return Ok(());
+    }
+
     if command == "constellation-diagnose" {
         if paths.len() < 5 {
             return Err("usage: noctyra constellation-diagnose <manifest.ncmf> <registry.ncts> <trusted-fingerprint> <carrier1.png> [more-carriers...]".into());
