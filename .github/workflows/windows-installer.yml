@@ -1,0 +1,78 @@
+name: NOCTYRA Windows Desktop Installer
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/desktop/**"
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/windows-installer.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: noctyra-windows-installer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows-installer:
+    name: Build NOCTYRA Windows installer (.exe)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository into a Windows-safe path
+        shell: pwsh
+        working-directory: D:/
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          New-Item -ItemType Directory -Force -Path D:/work | Out-Null
+          $auth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("x-access-token:$env:GITHUB_TOKEN"))
+          git -c "http.extraheader=AUTHORIZATION: basic $auth" clone --depth 1 "https://github.com/$env:REPOSITORY.git" D:/work/noctyra
+          if ($LASTEXITCODE -ne 0) { throw "Repository checkout failed." }
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install NSIS
+        shell: pwsh
+        run: choco install nsis -y --no-progress
+
+      - name: Install desktop dependencies
+        working-directory: D:/work/noctyra/apps/desktop
+        run: npm install
+
+      - name: Generate application icons
+        working-directory: D:/work/noctyra/apps/desktop
+        run: npm run tauri -- icon src-tauri/icons/noctyra.svg
+
+      - name: Build Windows installer
+        working-directory: D:/work/noctyra/apps/desktop
+        run: npm run build:windows
+
+      - name: Verify installer output
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem "D:/work/noctyra/target/release/bundle/nsis" -Filter "*.exe" -ErrorAction Stop
+          if (-not $installer) { throw "Tauri did not produce an NSIS installer." }
+          $installer | ForEach-Object { Write-Host "$($_.FullName) — $([math]::Round($_.Length / 1MB, 2)) MiB" }
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: NOCTYRA-Windows-Installer
+          path: D:/work/noctyra/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 30
