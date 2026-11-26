@@ -30,8 +30,14 @@
 - [x] NMF2 streaming directory serialization over NCT v2
 - [x] Authenticated staging and manifest validation before extraction
 - [x] Bounded-memory file extraction and path/entry/resource limits
-- [ ] Source snapshot / concurrent mutation hardening
-- [ ] Cross-platform crash-safe output review
+- [x] Detect source file size and modification-time changes before and after streaming
+- [x] Private sibling staging directory for authenticated directory extraction
+- [x] Flush extracted files and directories where supported before publication
+- [x] Marked stale-staging recovery API and explicit CLI command
+- [x] NMF2 manifest fuzz target and malformed-manifest regression tests
+- [ ] Filesystem snapshot / no-follow handle-based source traversal
+- [ ] Atomic no-replace directory publication across Windows, Linux and macOS
+- [ ] Cross-platform crash-injection and power-loss testing
 
 ## M3 — Image laboratory
 - [ ] PNG/BMP input validation and metadata policy
