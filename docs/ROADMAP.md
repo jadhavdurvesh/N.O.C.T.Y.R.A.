@@ -88,10 +88,13 @@
 - [x] Keep diagnostics read-only; never alter source carriers or trust records
 - [x] Preserve no-clobber temporary-output publication and NCT authentication before plaintext release
 - [x] Add per-shard verification regression coverage
-- [ ] Add resumable transfer checkpoints with authenticated state and safe restart semantics
-- [ ] Add a recovery-key workflow with clear separation from sender signing identities
-- [ ] Add streaming shard reconstruction to reduce peak memory usage
-- [ ] Add carrier capacity planner and batch diagnostics report
+- [x] Add authenticated local progress checkpoints bound to exact signed-manifest bytes
+- [x] Verify each carrier against the trusted manifest before marking its shard index
+- [x] Add checkpoint status and missing-index reporting; revalidate all carriers on resume
+- [x] Add independent 256-bit recovery-key credential generation and NCT encrypt/decrypt mode
+- [ ] Add dual password/recovery-key wrapping of one random archive data-encryption key in a versioned NCT envelope
+- [ ] Add streaming/disk-backed shard reconstruction to reduce peak memory usage
+- [ ] Add a dedicated carrier capacity planning report and batch diagnostics output
 - [ ] Add crash-injection, disk-full and interrupted-write recovery tests
 - [ ] Add cross-platform filesystem publication and permission tests
 - [ ] Run full workspace CI and resolve all failures
