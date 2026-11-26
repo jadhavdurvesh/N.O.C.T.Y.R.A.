@@ -719,9 +719,11 @@ mod tests {
     #[test]
     fn recovery_reports_threshold_and_rejects_corruption() {
         let shards = create_recovery_shards_with_id(&archive(), 1024, 2, [43u8; 16]).unwrap();
-        let report = inspect_recovery_shards(shards.iter().take(3).map(Vec::as_slice)).unwrap();
+        let data_count = archive().len().div_ceil(1024);
+        let report = inspect_recovery_shards(shards.iter().take(data_count).map(Vec::as_slice)).unwrap();
         assert!(report.recoverable);
-        let insufficient = shards.iter().take(2).map(Vec::as_slice);
+        assert_eq!(report.received_shards as usize, data_count);
+        let insufficient = shards.iter().take(data_count - 1).map(Vec::as_slice);
         assert_eq!(recover_archive(insufficient), Err(ConstellationError::InsufficientRecoveryShards));
         let mut corrupt = shards[0].clone();
         let last = corrupt.len() - 1;
