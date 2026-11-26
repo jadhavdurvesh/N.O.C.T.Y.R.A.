@@ -5,6 +5,7 @@
 use rand_core::{OsRng, RngCore};
 use thiserror::Error;
 use reed_solomon_erasure::galois_8::ReedSolomon;
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 
 pub const PROTOCOL_VERSION: u16 = 1;
 pub const PROTOCOL_NAME: &str = "CONSTELLATION";
@@ -20,6 +21,12 @@ pub const RECOVERY_HEADER_LEN: usize = 4 + 2 + 16 + 8 + 2 + 2 + 2 + 4 + 32 + 32;
 pub const DEFAULT_RECOVERY_DATA_SHARDS: usize = 8;
 pub const DEFAULT_RECOVERY_PARITY_SHARDS: usize = 2;
 pub const MAX_RECOVERY_SHARDS: usize = 255;
+pub const MANIFEST_MAGIC: &[u8; 4] = b"NCMF";
+pub const MANIFEST_VERSION: u16 = 1;
+pub const MANIFEST_BODY_LEN: usize = 4 + 2 + 16 + 8 + 2 + 2 + 4 + 32 + 32;
+pub const MANIFEST_SIGNATURE_LEN: usize = 64;
+pub const SIGNING_PUBLIC_KEY_LEN: usize = 32;
+pub const SIGNING_SECRET_KEY_LEN: usize = 32;
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ConstellationError {
@@ -51,6 +58,14 @@ pub enum ConstellationError {
     InsufficientRecoveryShards,
     #[error("Reed-Solomon recovery failed")]
     RecoveryFailed,
+    #[error("signed manifest is malformed or unsupported")]
+    MalformedManifest,
+    #[error("signed manifest signature is invalid")]
+    InvalidManifestSignature,
+    #[error("manifest does not match the supplied recovery shards")]
+    ManifestShardMismatch,
+    #[error("manifest signer is not the trusted public key")]
+    UntrustedManifestSigner,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -334,6 +349,126 @@ where I: IntoIterator<Item = &'a [u8]> {
     }
     validate_nct_archive(&archive)?;
     Ok(archive)
+}
+
+/// Signed recovery manifest. Its fixed binary representation is canonical.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SignedManifest {
+    pub transfer_id: [u8; 16],
+    pub archive_len: u64,
+    pub data_shards: u16,
+    pub parity_shards: u16,
+    pub shard_size: u32,
+    pub archive_digest: [u8; 32],
+    pub signer_public_key: [u8; 32],
+    pub signature: [u8; 64],
+}
+
+fn manifest_body(
+    transfer_id: &[u8; 16], archive_len: u64, data_shards: u16,
+    parity_shards: u16, shard_size: u32, archive_digest: &[u8; 32],
+) -> Vec<u8> {
+    let mut body = Vec::with_capacity(MANIFEST_BODY_LEN);
+    body.extend_from_slice(MANIFEST_MAGIC);
+    body.extend_from_slice(&MANIFEST_VERSION.to_le_bytes());
+    body.extend_from_slice(transfer_id);
+    body.extend_from_slice(&archive_len.to_le_bytes());
+    body.extend_from_slice(&data_shards.to_le_bytes());
+    body.extend_from_slice(&parity_shards.to_le_bytes());
+    body.extend_from_slice(&shard_size.to_le_bytes());
+    body.extend_from_slice(archive_digest);
+    body
+}
+
+/// Create a canonical, Ed25519-signed manifest for the exact recovery set.
+pub fn create_signed_manifest(
+    archive: &[u8], shard_size: usize, parity_shards: usize, signing_key: &SigningKey,
+) -> Result<Vec<u8>, ConstellationError> {
+    validate_nct_archive(archive)?;
+    if archive.len() > MAX_ARCHIVE_BYTES || shard_size == 0 || shard_size > MAX_FRAGMENT_DATA_BYTES || parity_shards == 0 {
+        return Err(ConstellationError::InvalidRecoveryParameters);
+    }
+    let data_shards = archive.len().div_ceil(shard_size);
+    if data_shards == 0 || data_shards + parity_shards > MAX_RECOVERY_SHARDS {
+        return Err(ConstellationError::InvalidRecoveryParameters);
+    }
+    let mut transfer_id = [0u8; 16];
+    OsRng.try_fill_bytes(&mut transfer_id).map_err(|_| ConstellationError::RandomFailure)?;
+    let body = manifest_body(
+        &transfer_id, archive.len() as u64, data_shards as u16,
+        parity_shards as u16, shard_size as u32, &digest(archive),
+    );
+    let mut signed_message = b"NOCTYRA-CONSTELLATION-MANIFEST-V1\0".to_vec();
+    signed_message.extend_from_slice(&body);
+    let signature = signing_key.sign(&signed_message);
+    let mut output = body;
+    output.extend_from_slice(&signing_key.verifying_key().to_bytes());
+    output.extend_from_slice(&signature.to_bytes());
+    Ok(output)
+}
+
+pub fn parse_signed_manifest(bytes: &[u8]) -> Result<SignedManifest, ConstellationError> {
+    let expected = MANIFEST_BODY_LEN + SIGNING_PUBLIC_KEY_LEN + MANIFEST_SIGNATURE_LEN;
+    if bytes.len() != expected || &bytes[..4] != MANIFEST_MAGIC
+        || u16::from_le_bytes([bytes[4], bytes[5]]) != MANIFEST_VERSION {
+        return Err(ConstellationError::MalformedManifest);
+    }
+    let mut transfer_id = [0u8; 16]; transfer_id.copy_from_slice(&bytes[6..22]);
+    let archive_len = u64::from_le_bytes(bytes[22..30].try_into().map_err(|_| ConstellationError::MalformedManifest)?);
+    let data_shards = u16::from_le_bytes(bytes[30..32].try_into().map_err(|_| ConstellationError::MalformedManifest)?);
+    let parity_shards = u16::from_le_bytes(bytes[32..34].try_into().map_err(|_| ConstellationError::MalformedManifest)?);
+    let shard_size = u32::from_le_bytes(bytes[34..38].try_into().map_err(|_| ConstellationError::MalformedManifest)?);
+    let mut archive_digest = [0u8; 32]; archive_digest.copy_from_slice(&bytes[38..70]);
+    let mut signer_public_key = [0u8; 32]; signer_public_key.copy_from_slice(&bytes[70..102]);
+    let mut signature = [0u8; 64]; signature.copy_from_slice(&bytes[102..166]);
+    let total = data_shards as usize + parity_shards as usize;
+    if archive_len == 0 || archive_len > MAX_ARCHIVE_BYTES as u64
+        || data_shards == 0 || parity_shards == 0 || total > MAX_RECOVERY_SHARDS
+        || shard_size == 0 || shard_size as usize > MAX_FRAGMENT_DATA_BYTES
+        || (data_shards as u64 - 1).saturating_mul(shard_size as u64) >= archive_len
+        || (data_shards as u64).saturating_mul(shard_size as u64) < archive_len {
+        return Err(ConstellationError::MalformedManifest);
+    }
+    Ok(SignedManifest { transfer_id, archive_len, data_shards, parity_shards, shard_size, archive_digest, signer_public_key, signature })
+}
+
+/// Verify the manifest signature and pin it to an independently trusted key.
+pub fn verify_signed_manifest(bytes: &[u8], trusted_public_key: &[u8; 32]) -> Result<SignedManifest, ConstellationError> {
+    let manifest = parse_signed_manifest(bytes)?;
+    if &manifest.signer_public_key != trusted_public_key { return Err(ConstellationError::UntrustedManifestSigner); }
+    let key = VerifyingKey::from_bytes(&manifest.signer_public_key).map_err(|_| ConstellationError::MalformedManifest)?;
+    let signature = Signature::from_bytes(&manifest.signature);
+    let body = &bytes[..MANIFEST_BODY_LEN];
+    let mut signed_message = b"NOCTYRA-CONSTELLATION-MANIFEST-V1\0".to_vec();
+    signed_message.extend_from_slice(body);
+    key.verify(&signed_message, &signature).map_err(|_| ConstellationError::InvalidManifestSignature)?;
+    Ok(manifest)
+}
+
+/// Ensure every supplied shard is part of the exact transfer described by a verified manifest.
+pub fn verify_manifest_shards<'a, I>(manifest: &SignedManifest, inputs: I) -> Result<RecoveryReport, ConstellationError>
+where I: IntoIterator<Item = &'a [u8]> {
+    let report = inspect_recovery_shards(inputs.into_iter().inspect(|_| {}))?;
+    let mut inputs = inputs.into_iter();
+    let mut seen = vec![false; manifest.data_shards as usize + manifest.parity_shards as usize];
+    for input in inputs.by_ref() {
+        let shard = parse_recovery_shard(input)?;
+        if shard.transfer_id != manifest.transfer_id || shard.archive_len != manifest.archive_len
+            || shard.data_shards != manifest.data_shards || shard.parity_shards != manifest.parity_shards
+            || shard.shard_size != manifest.shard_size || shard.archive_digest != manifest.archive_digest {
+            return Err(ConstellationError::ManifestShardMismatch);
+        }
+        seen[shard.index as usize] = true;
+    }
+    let _ = report;
+    Ok(RecoveryReport {
+        transfer_id: manifest.transfer_id,
+        data_shards: manifest.data_shards,
+        parity_shards: manifest.parity_shards,
+        received_shards: seen.iter().filter(|present| **present).count() as u16,
+        missing_indices: seen.iter().enumerate().filter_map(|(i, present)| (!present).then_some(i as u16)).collect(),
+        recoverable: seen.iter().filter(|present| **present).count() >= manifest.data_shards as usize,
+    })
 }
 
 /// Parse and validate one untrusted fragment before retaining its payload.
