@@ -447,7 +447,11 @@ pub fn decrypt_directory_stream(
 
     // persist_noclobber uses a same-filesystem rename and refuses to replace an
     // existing destination, including one created after the earlier existence check.
-    staging.persist_noclobber(destination).map_err(|error| io_error(error.error))?;
+    let staging_path = staging.keep();
+    if let Err(error) = fs::rename(&staging_path, destination) {
+        let _ = fs::remove_dir_all(&staging_path);
+        return Err(io_error(error));
+    }
     sync_directory(parent)?;
     Ok(())
 }
