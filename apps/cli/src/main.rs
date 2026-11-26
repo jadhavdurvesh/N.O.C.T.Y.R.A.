@@ -463,7 +463,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         let output = Path::new(&paths[0]);
         if output.exists() { return Err("refusing to overwrite an existing recovery key".into()); }
         let mut key = Zeroizing::new([0u8; 32]);
-        OsRng.try_fill_bytes(&mut key[..])?;
+        OsRng.try_fill_bytes(&mut key[..]).map_err(|_| std::io::Error::other("operating-system random generator failed"))?;
         write_new_key_file(output, &key[..], true)?;
         println!("Independent 256-bit recovery credential created: {}", output.display());
         println!("Keep this file offline and backed up. Anyone possessing it can decrypt archives created with it.");
@@ -501,7 +501,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         let total = manifest.data_shards() as usize + manifest.parity_shards() as usize;
         let checkpoint = noctyra_core::RecoveryCheckpoint::from_verified_manifest(manifest.transfer_id(), &manifest_bytes, total)?;
         let mut key = Zeroizing::new([0u8; 32]);
-        OsRng.try_fill_bytes(&mut key[..])?;
+        OsRng.try_fill_bytes(&mut key[..]).map_err(|_| std::io::Error::other("operating-system random generator failed"))?;
         let checkpoint_path = Path::new(&paths[3]);
         let key_path = Path::new(&paths[4]);
         if checkpoint_path.exists() || key_path.exists() || checkpoint_path == key_path {
