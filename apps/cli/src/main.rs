@@ -163,6 +163,56 @@ fn run() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
+    if command == "trust-rotate" {
+        if paths.len() != 6 { return Err("usage: noctyra trust-rotate <registry.ncts> <old-fingerprint> <rotation.ncrt> <new-public-key.bin> <label> <expected-new-fingerprint>".into()); }
+        let registry_path = Path::new(&paths[0]);
+        let registry_bytes = Zeroizing::new(read_limited(registry_path, noctyra_core::MAX_TRUST_STORE_BYTES as u64, "trust registry")?);
+        let secret = password(false)?;
+        let mut store = noctyra_core::open_trust_store(secret.as_bytes(), &registry_bytes)?;
+        let old_fingerprint = paths[1].to_string_lossy();
+        let old_public = store.trusted_public_key(&old_fingerprint)?;
+        let certificate = Zeroizing::new(read_limited(Path::new(&paths[2]), noctyra_core::ROTATION_CERTIFICATE_LEN as u64, "rotation certificate")?);
+        let successor = noctyra_core::verify_rotation_certificate(&certificate, &old_public)?;
+        let supplied_bytes = Zeroizing::new(read_limited(Path::new(&paths[3]), 32, "successor public key")?);
+        let supplied: [u8; 32] = supplied_bytes.as_slice().try_into().map_err(|_| "successor public key must be exactly 32 bytes")?;
+        if supplied != successor { return Err("successor public key does not match the signed rotation certificate".into()); }
+        let fingerprint = blake3::hash(&successor).to_hex().to_string();
+        if fingerprint != paths[5].to_string_lossy() { return Err(format!("successor fingerprint confirmation mismatch; computed fingerprint: {fingerprint}").into()); }
+        let label = paths[4].to_string_lossy().into_owned();
+        store.add(successor, label)?;
+        store.revoke(&old_fingerprint)?;
+        let updated = Zeroizing::new(noctyra_core::save_trust_store(secret.as_bytes(), &store)?);
+        replace_private_file(registry_path, &updated)?;
+        println!("Trust rotation committed: successor added and predecessor revoked.");
+        println!("New trusted fingerprint: {fingerprint}");
+        return Ok(());
+    }
+
+    if command == "constellation-manifest-verify-trusted-recovery" {
+        if paths.len() < 6 { return Err("usage: noctyra constellation-manifest-verify-trusted-recovery <output.nct> <manifest.ncmf> <registry.ncts> <trusted-fingerprint> <shard1.ncrs> [more-shards...]".into()); }
+        let manifest_bytes = Zeroizing::new(read_limited(Path::new(&paths[1]), 1024 * 1024, "signed manifest")?);
+        let registry_bytes = Zeroizing::new(read_limited(Path::new(&paths[2]), noctyra_core::MAX_TRUST_STORE_BYTES as u64, "trust registry")?);
+        let secret = password(false)?;
+        let store = noctyra_core::open_trust_store(secret.as_bytes(), &registry_bytes)?;
+        let fingerprint = paths[3].to_string_lossy();
+        let trusted_key = store.trusted_public_key(&fingerprint)?;
+        let manifest = noctyra_core::verify_signed_manifest(&manifest_bytes, &trusted_key)?;
+        let mut shards = Vec::with_capacity(paths.len() - 4);
+        for path in &paths[4..] {
+            shards.push(Zeroizing::new(read_limited(Path::new(path), (noctyra_core::MAX_FRAGMENT_DATA_BYTES + noctyra_core::RECOVERY_HEADER_LEN) as u64, "recovery shard")?));
+        }
+        let refs: Vec<&[u8]> = shards.iter().map(|shard| shard.as_slice()).collect();
+        let report = noctyra_core::verify_manifest_shards(&manifest, refs.iter().copied())?;
+        if !report.recoverable { return Err(format!("signed set is authentic but incomplete: received {}, need at least {}", report.received_shards, report.data_shards).into()); }
+        let archive = Zeroizing::new(noctyra_core::recover_archive(refs)?);
+        let output = Path::new(&paths[0]);
+        let mut temp = temporary_output(output)?;
+        temp.as_file_mut().write_all(&archive)?;
+        publish(temp, output)?;
+        println!("Trusted-sender verification and authenticated recovery succeeded: {}", output.display());
+        return Ok(());
+    }
+
     if command == "trust-list" || command == "trust-revoke" || command == "trust-check" {
         let expected = if command == "trust-list" { 1 } else { 2 };
         if paths.len() != expected {
@@ -661,7 +711,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                 other => return Err(format!("unsupported NCT directory archive version: {other}").into()),
             }
         }
-        _ => return Err("usage: noctyra encrypt <file> <archive.nct> | decrypt <archive.nct> <file> | encrypt-dir <directory> <archive.nct> | decrypt-dir <archive.nct> <new-directory> | cleanup-staging <parent-directory> | carrier-embed <carrier-image> <encrypted-archive.nct> <output-image> | carrier-extract <carrier-image> <output-archive.nct> | constellation-split <archive.nct> <new-output-directory> [fragment-bytes] | constellation-inspect <fragment-1.ncfr> [more-fragments...] | constellation-inspect-images <carrier-image1> [more-carriers...] | constellation-reassemble <output-archive.nct> <fragment-1.ncfr> [fragment-2.ncfr ...] | constellation-encode <archive.nct> <new-output-directory> <cover-image1> [cover-image2 ...] | constellation-reassemble-images <output-archive.nct> <carrier-image1> [carrier-image2 ...] | constellation-recovery-encode <archive.nct> <new-output-directory> <shard-bytes> <parity-shards> <cover-image1> [more-images...] | constellation-recovery-split <archive.nct> <new-output-directory> <shard-bytes> <parity-shards> | constellation-recovery <output-archive.nct> <shard1.ncrs> [more-shards...] | constellation-recovery-images <output-archive.nct> <carrier1.png> [more-carriers...] | vault-create <identity.nckv> | vault-inspect <identity.nckv> | vault-export-public <identity.nckv> <public-key.bin> | vault-rotate <old.nckv> <new.nckv> <rotation.ncrt> | verify-rotation <rotation.ncrt> <trusted-old-public-key.bin> | trust-init <registry.ncts> | trust-add <registry.ncts> <public-key.bin> <label> <expected-fingerprint> | trust-list <registry.ncts> | trust-revoke <registry.ncts> <fingerprint> | trust-check <registry.ncts> <fingerprint> | vault-create <identity.nckv> | vault-inspect <identity.nckv> | vault-export-public <identity.nckv> <public-key.bin> | vault-rotate <old.nckv> <new.nckv> <rotation.ncrt> | verify-rotation <rotation.ncrt> <trusted-old-public-key.bin> | constellation-keygen <private-key-file> <public-key-file> | constellation-manifest-create <shard1.ncrs> [more-shards...] <private-key-file> <manifest.ncmf> | constellation-manifest-verify-recovery <output.nct> <manifest.ncmf> <trusted-public-key-file> <shard1.ncrs> [more-shards...]".into()),
+        _ => return Err("usage: noctyra encrypt <file> <archive.nct> | decrypt <archive.nct> <file> | encrypt-dir <directory> <archive.nct> | decrypt-dir <archive.nct> <new-directory> | cleanup-staging <parent-directory> | carrier-embed <carrier-image> <encrypted-archive.nct> <output-image> | carrier-extract <carrier-image> <output-archive.nct> | constellation-split <archive.nct> <new-output-directory> [fragment-bytes] | constellation-inspect <fragment-1.ncfr> [more-fragments...] | constellation-inspect-images <carrier-image1> [more-carriers...] | constellation-reassemble <output-archive.nct> <fragment-1.ncfr> [fragment-2.ncfr ...] | constellation-encode <archive.nct> <new-output-directory> <cover-image1> [cover-image2 ...] | constellation-reassemble-images <output-archive.nct> <carrier-image1> [carrier-image2 ...] | constellation-recovery-encode <archive.nct> <new-output-directory> <shard-bytes> <parity-shards> <cover-image1> [more-images...] | constellation-recovery-split <archive.nct> <new-output-directory> <shard-bytes> <parity-shards> | constellation-recovery <output-archive.nct> <shard1.ncrs> [more-shards...] | constellation-recovery-images <output-archive.nct> <carrier1.png> [more-carriers...] | vault-create <identity.nckv> | vault-inspect <identity.nckv> | vault-export-public <identity.nckv> <public-key.bin> | vault-rotate <old.nckv> <new.nckv> <rotation.ncrt> | verify-rotation <rotation.ncrt> <trusted-old-public-key.bin> | trust-init <registry.ncts> | trust-add <registry.ncts> <public-key.bin> <label> <expected-fingerprint> | trust-rotate <registry.ncts> <old-fingerprint> <rotation.ncrt> <new-public-key.bin> <label> <expected-new-fingerprint> | trust-list <registry.ncts> | trust-revoke <registry.ncts> <fingerprint> | trust-check <registry.ncts> <fingerprint> | vault-create <identity.nckv> | vault-inspect <identity.nckv> | vault-export-public <identity.nckv> <public-key.bin> | vault-rotate <old.nckv> <new.nckv> <rotation.ncrt> | verify-rotation <rotation.ncrt> <trusted-old-public-key.bin> | constellation-keygen <private-key-file> <public-key-file> | constellation-manifest-create <shard1.ncrs> [more-shards...] <private-key-file> <manifest.ncmf> | constellation-manifest-verify-recovery <output.nct> <manifest.ncmf> <trusted-public-key-file> <shard1.ncrs> [more-shards...] | constellation-manifest-verify-trusted-recovery <output.nct> <manifest.ncmf> <registry.ncts> <trusted-fingerprint> <shard1.ncrs> [more-shards...]".into()),
     }
 
     println!("Operation completed: {}", output.display());
