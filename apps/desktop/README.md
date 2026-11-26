@@ -17,13 +17,13 @@ The Rust backend uses the shared NOCTYRA core for archive encryption and decrypt
 
 - Local file selection.
 - Password-prompt UI with confirmation during encryption.
-- NCT archive encryption and authenticated decryption.
-- Refuses to overwrite an existing output file.
-- 1 GiB input limit.
+- NCT v2 streaming file encryption and authenticated decryption; v1 file archives remain readable.
+- Temporary sibling output and no-clobber publication after final authentication.
+- Directory operations remain on the buffered NCT v1 path with a 1 GiB archive limit.
 - No network upload or account service.
 
 ## Limitations
 
-This is an early development shell. It is not audited. Password strings pass through the desktop IPC boundary and are cleared from the UI after an operation, but complete memory erasure across the webview/runtime cannot be guaranteed. File archives, folders, carrier images, CONSTELLATION, recovery keys, and signed release packages are future milestones.
+This is an early development shell. It is not audited. Password strings pass through the desktop IPC boundary and are cleared from the UI after an operation, but complete memory erasure across the webview/runtime cannot be guaranteed. Streaming single-file archives are implemented as an experimental v2 draft. Directory streaming, carrier images, CONSTELLATION, recovery keys, and signed release packages are future milestones.
 
 The Tauri bundle is disabled in the initial config until packaging and platform-specific hardening are reviewed.
