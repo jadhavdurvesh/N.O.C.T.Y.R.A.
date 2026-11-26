@@ -62,6 +62,31 @@ pub fn decrypt(password: &[u8], payload: &EncryptedPayload, associated_data: &[u
     }).map_err(|_| CryptoError::Authentication)
 }
 
+/// A password-derived cipher for a sequence of independently authenticated chunks.
+/// Construct once per archive; never derive Argon2id keys per chunk.
+pub struct ChunkCipher {
+    cipher: XChaCha20Poly1305,
+}
+
+impl ChunkCipher {
+    pub fn from_password(password: &[u8], salt: &[u8; SALT_LEN]) -> Result<Self, CryptoError> {
+        let key = derive_key(password, salt)?;
+        let cipher = XChaCha20Poly1305::new_from_slice(&key[..])
+            .map_err(|_| CryptoError::Encryption)?;
+        Ok(Self { cipher })
+    }
+
+    pub fn seal_chunk(&self, nonce: &[u8; NONCE_LEN], aad: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
+        self.cipher.encrypt(XNonce::from_slice(nonce), Payload { msg: plaintext, aad })
+            .map_err(|_| CryptoError::Encryption)
+    }
+
+    pub fn open_chunk(&self, nonce: &[u8; NONCE_LEN], aad: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, CryptoError> {
+        self.cipher.decrypt(XNonce::from_slice(nonce), Payload { msg: ciphertext, aad })
+            .map_err(|_| CryptoError::Authentication)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -87,31 +112,5 @@ mod tests {
         assert!(matches!(decrypt(b"password", &encrypted, b"metadata"), Err(CryptoError::Authentication)));
         let encrypted = encrypt(b"password", b"secret payload", b"metadata-a").unwrap();
         assert!(matches!(decrypt(b"password", &encrypted, b"metadata-b"), Err(CryptoError::Authentication)));
-    }
-}
-
-
-/// A password-derived cipher for a sequence of independently authenticated chunks.
-/// Construct once per archive; never derive Argon2id keys per chunk.
-pub struct ChunkCipher {
-    cipher: XChaCha20Poly1305,
-}
-
-impl ChunkCipher {
-    pub fn from_password(password: &[u8], salt: &[u8; SALT_LEN]) -> Result<Self, CryptoError> {
-        let key = derive_key(password, salt)?;
-        let cipher = XChaCha20Poly1305::new_from_slice(&key[..])
-            .map_err(|_| CryptoError::Encryption)?;
-        Ok(Self { cipher })
-    }
-
-    pub fn seal_chunk(&self, nonce: &[u8; NONCE_LEN], aad: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
-        self.cipher.encrypt(XNonce::from_slice(nonce), Payload { msg: plaintext, aad })
-            .map_err(|_| CryptoError::Encryption)
-    }
-
-    pub fn open_chunk(&self, nonce: &[u8; NONCE_LEN], aad: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, CryptoError> {
-        self.cipher.decrypt(XNonce::from_slice(nonce), Payload { msg: ciphertext, aad })
-            .map_err(|_| CryptoError::Authentication)
     }
 }
