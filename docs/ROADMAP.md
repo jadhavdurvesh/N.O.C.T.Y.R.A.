@@ -70,8 +70,14 @@
 - [x] Duplicate, mixed-transfer, malformed and corrupt shard rejection
 - [x] Recovery CLI for raw shards and multi-image carrier sets
 - [x] Recovery shard parser fuzz target
+- [x] NCKV v1 password-encrypted Ed25519 signing-key vault
+- [x] NCRT v1 old-key-signed rotation certificates
+- [x] NCTS v1 password-encrypted trusted-sender registry
+- [x] Explicit fingerprint confirmation when adding a trusted key
+- [x] Local key revocation and trust-aware manifest recovery
 - [ ] OS keychain / hardware-backed signing-key storage
-- [ ] Key rotation, revocation and signer identity provisioning policy
+- [ ] Windows ACL hardening and platform secure-storage integration
+- [ ] Registry anti-rollback and externally distributed revocation policy
 - [ ] End-to-end recovery image integration tests and carrier capacity benchmarks
 - [ ] End-to-end multi-image integration tests and carrier capacity benchmarks
 
