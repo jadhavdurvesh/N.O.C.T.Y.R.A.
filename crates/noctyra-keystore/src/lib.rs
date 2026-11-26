@@ -3,7 +3,7 @@
 //! NCKV v1 stores a public key in cleartext and encrypts the 32-byte Ed25519
 //! seed with NOCTYRA's Argon2id + XChaCha20-Poly1305 password encryption.
 //! The public key and fixed header are authenticated as associated data.
-use ed25519_dalek::{SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
 use noctyra_crypto::{decrypt, encrypt, EncryptedPayload};
 use thiserror::Error;
 use zeroize::Zeroizing;
@@ -119,7 +119,7 @@ pub fn create_rotation_certificate(
     body.extend_from_slice(new_public_key);
     let mut message = ROTATION_DOMAIN.to_vec();
     message.extend_from_slice(&body);
-    let signature = ed25519_dalek::Signer::sign(old_key, &message);
+    let signature = old_key.sign(&message);
     body.extend_from_slice(&signature.to_bytes());
     body
 }
@@ -172,6 +172,29 @@ mod tests {
         let mut changed = vault;
         changed[90] ^= 1;
         assert_eq!(unlock_vault(b"correct password", &changed).unwrap_err(), KeyVaultError::Authentication);
+    }
+
+    #[test]
+    fn rotation_certificate_requires_trusted_old_key_and_valid_signature() {
+        let old = SigningKey::from_bytes(&[11u8; 32]);
+        let next = SigningKey::from_bytes(&[12u8; 32]);
+        let old_public = old.verifying_key().to_bytes();
+        let next_public = next.verifying_key().to_bytes();
+        let certificate = create_rotation_certificate(&old, &next_public);
+        assert_eq!(certificate.len(), ROTATION_CERTIFICATE_LEN);
+        assert_eq!(verify_rotation_certificate(&certificate, &old_public).unwrap(), next_public);
+
+        let attacker = SigningKey::from_bytes(&[13u8; 32]);
+        assert_eq!(
+            verify_rotation_certificate(&certificate, &attacker.verifying_key().to_bytes()),
+            Err(KeyVaultError::KeyMismatch)
+        );
+        let mut changed = certificate;
+        changed[40] ^= 1;
+        assert_eq!(
+            verify_rotation_certificate(&changed, &old_public),
+            Err(KeyVaultError::Authentication)
+        );
     }
 
     #[test]
