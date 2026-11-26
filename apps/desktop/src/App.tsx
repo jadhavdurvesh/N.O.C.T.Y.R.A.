@@ -75,7 +75,7 @@ function App() {
             {message && <div className={error ? "result error" : "result success"}>{error ? <TriangleAlert size={17} /> : <CheckCircle2 size={17} />}<span>{message}</span></div>}
           </section>
           <div className="bottom-grid"><div className="info-card"><div className="info-icon"><ShieldCheck size={18} /></div><div><b>Authenticated encryption</b><p>Modified archives and incorrect passwords are rejected before plaintext is returned.</p></div></div><div className="info-card"><div className="info-icon"><Fingerprint size={18} /></div><div><b>Local-first processing</b><p>Selected files and folders are processed by the local Rust core, not uploaded to a server.</p></div></div></div>
-          <footer><span>NOCTYRA CORE / DEVELOPMENT BUILD</span><span>FORMAT NCT v1 DRAFT <i>•</i> NOT YET AUDITED</span></footer>
+          <footer><span>NOCTYRA CORE / DEVELOPMENT BUILD</span><span>FORMAT NCT v1 / v2 DRAFT <i>•</i> NOT YET AUDITED</span></footer>
         </div>
       </section>
     </main>
