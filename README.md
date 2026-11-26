@@ -56,6 +56,30 @@ Early engineering project; not an audited security product. No government, milit
 Never commit passwords, recovery keys, private carrier images, real encrypted personal archives, or other secrets.
 
 
+## Recovery reliability tools (experimental)
+
+M5 adds signed-carrier diagnostics, authenticated local recovery checkpoints, an independent recovery-key credential mode, bounded-stripe Reed-Solomon reconstruction, and a carrier-capacity planner.
+
+```powershell
+# Check available carrier capacity before creating a transfer
+cargo run -p noctyra-cli -- constellation-plan <archive-bytes> <shard-bytes> <parity-shards> <cover-image1> [more-covers...]
+
+# Diagnose surviving carriers against a trusted sender manifest
+cargo run -p noctyra-cli -- constellation-diagnose <manifest.ncmf> <registry.ncts> <fingerprint> <carrier1.png> [more-carriers...]
+
+# Create and inspect a resumable checkpoint
+cargo run -p noctyra-cli -- recovery-checkpoint-init <manifest.ncmf> <registry.ncts> <fingerprint> <checkpoint.ncrp> <checkpoint-key.bin>
+cargo run -p noctyra-cli -- recovery-checkpoint-mark <manifest.ncmf> <registry.ncts> <fingerprint> <checkpoint.ncrp> <checkpoint-key.bin> <verified-carrier.png>
+cargo run -p noctyra-cli -- recovery-checkpoint-status <manifest.ncmf> <registry.ncts> <fingerprint> <checkpoint.ncrp> <checkpoint-key.bin>
+
+# Create a separate offline recovery credential and use it for NCT files
+cargo run -p noctyra-cli -- recovery-keygen <recovery-key.bin>
+cargo run -p noctyra-cli -- encrypt-with-recovery-key <input-file> <archive.nct> <recovery-key.bin>
+cargo run -p noctyra-cli -- decrypt-with-recovery-key <archive.nct> <output-file> <recovery-key.bin>
+```
+
+Checkpoint files are authenticated with a separate local key. They record progress but never replace fresh carrier verification. The recovery-key mode is a separate credential choice; it does not yet add a second unlock slot to an archive already encrypted with a password. The bounded-stripe API reduces reconstruction allocations, but the current CLI still loads carrier frames into memory. See the roadmap and protocol documentation before relying on these experimental workflows.
+
 ## End-to-end transfer (experimental)
 
 NOCTYRA can package an encrypted file into a signed multi-carrier recovery set. The sender uses an encrypted identity vault; the recipient must independently trust the sender fingerprint in their encrypted trust registry.
