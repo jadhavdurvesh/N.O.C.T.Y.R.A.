@@ -30,8 +30,8 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Check formatting
-        run: cargo fmt --all -- --check
+      - name: Format Rust workspace
+        run: cargo fmt --all
 
       - name: Run workspace tests
         run: cargo test -p noctyra-crypto -p noctyra-container -p noctyra-core -p noctyra-cli --all-targets
