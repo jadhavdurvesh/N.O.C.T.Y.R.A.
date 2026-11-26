@@ -38,6 +38,8 @@ pub enum ImageError {
     Decode(String),
     #[error("carrier image could not be encoded: {0}")]
     Encode(String),
+    #[error("encoded carrier exceeds the configured 64 MiB output limit")]
+    OutputTooLarge,
     #[error("carrier image has insufficient pixel capacity")]
     InsufficientCapacity,
 }
@@ -104,7 +106,9 @@ impl CarrierImage {
         let mut output = Cursor::new(Vec::new());
         image.write_to(&mut output, format.image_format())
             .map_err(|e| ImageError::Encode(e.to_string()))?;
-        Ok(output.into_inner())
+        let encoded = output.into_inner();
+        if encoded.len() > MAX_CARRIER_FILE_BYTES { return Err(ImageError::OutputTooLarge); }
+        Ok(encoded)
     }
 }
 
