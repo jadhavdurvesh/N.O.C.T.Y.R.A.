@@ -53,7 +53,7 @@ The future transfer manifest may record the archive identifier, total payload le
 9. Authenticate/decrypt the reconstructed NCT archive before trusting plaintext.
 10. Never write recovered plaintext before successful cryptographic authentication.
 
-The CLI currently supports splitting into NCFR files, embedding fragments into multiple supplied PNG/BMP cover images, and reassembling from out-of-order NCFR files or carrier images. The v1 implementation rejects duplicate indexes, mixed transfer IDs, malformed lengths, corrupt fragment digests, missing parts, and a final archive digest mismatch. It does not yet implement parity/recovery shards.
+The CLI currently supports splitting into NCFR files, embedding fragments into multiple supplied PNG/BMP cover images, inspecting missing indexes, and reassembling from out-of-order NCFR files or carrier images. CLI fragment generation uses a FragmentPlan to encode one fragment at a time rather than retaining a second full set of fragment copies in memory. The source encrypted archive is still currently read into memory; a fully streaming archive-to-fragment pipeline remains future work. The v1 implementation rejects duplicate indexes, mixed transfer IDs, malformed lengths, corrupt fragment digests, missing parts, and a final archive digest mismatch. It does not yet implement parity/recovery shards.
 
 ## Optional redundancy
 A later protocol revision may use a well-reviewed Reed-Solomon erasure-coding implementation. Code parameters, shard sizing, maximum recovery count, and interoperability test vectors must be specified. Redundancy improves resilience to missing parts; it does not make data undetectable or provide confidentiality.
