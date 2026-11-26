@@ -12,8 +12,9 @@ NOCTYRA is an early-stage private project. It is not yet audited and must not be
 - Avoid logging passwords, keys, plaintext filenames, or decrypted data.
 - Do not write partially decrypted output to the final destination.
 - Never automatically delete or overwrite source files.
+- Treat interrupted extraction staging as recoverable data; cleanup must require an explicit user action, recognize only application-created markers, and avoid active operations.
 - Review dependencies and commit Cargo.lock for applications.
-- Fuzz untrusted parsers and image/container decoders.
+- Fuzz untrusted parsers and image/container decoders. The NMF2 manifest has a cargo-fuzz target under `fuzz/`.
 
 ## Reporting
 
