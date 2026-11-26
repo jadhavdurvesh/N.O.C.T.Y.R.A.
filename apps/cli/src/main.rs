@@ -235,6 +235,33 @@ fn run() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
+    if command == "constellation-recovery-split" {
+        if paths.len() != 4 {
+            return Err("usage: noctyra constellation-recovery-split <archive.nct> <new-output-directory> <shard-bytes> <parity-shards>".into());
+        }
+        let archive = Zeroizing::new(read_bounded(Path::new(&paths[0]))?);
+        let destination = Path::new(&paths[1]);
+        if destination.exists() { return Err("output directory already exists; refusing to overwrite".into()); }
+        let shard_size = paths[2].to_string_lossy().parse::<usize>()?;
+        let parity_count = paths[3].to_string_lossy().parse::<usize>()?;
+        let shards = noctyra_core::create_recovery_shards(&archive, shard_size, parity_count)?;
+        let parent = destination.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+        let staging = tempfile::Builder::new().prefix(".noctyra-recovery-").tempdir_in(parent)?;
+        for (index, shard) in shards.iter().enumerate() {
+            let path = staging.path().join(format!("shard-{index:04}.ncrs"));
+            let mut file = File::options().write(true).create_new(true).open(path)?;
+            file.write_all(shard)?;
+            file.sync_all()?;
+        }
+        let staging_path = staging.keep();
+        if let Err(error) = fs::rename(&staging_path, destination) {
+            let _ = fs::remove_dir_all(&staging_path);
+            return Err(error.into());
+        }
+        println!("CONSTELLATION recovery set written: {} shards ({} data + {} parity)", shards.len(), shards.len() - parity_count, parity_count);
+        return Ok(());
+    }
+
     if command == "constellation-recovery" || command == "constellation-recovery-images" {
         if paths.len() < 2 || paths.len() > noctyra_core::MAX_RECOVERY_SHARDS + 1 {
             return Err("usage: noctyra constellation-recovery <output-archive.nct> <shard1.ncrs> [more-shards...] (or constellation-recovery-images <output-archive.nct> <carrier1.png> [more-carriers...])".into());
@@ -415,7 +442,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                 other => return Err(format!("unsupported NCT directory archive version: {other}").into()),
             }
         }
-        _ => return Err("usage: noctyra encrypt <file> <archive.nct> | decrypt <archive.nct> <file> | encrypt-dir <directory> <archive.nct> | decrypt-dir <archive.nct> <new-directory> | cleanup-staging <parent-directory> | carrier-embed <carrier-image> <encrypted-archive.nct> <output-image> | carrier-extract <carrier-image> <output-archive.nct> | constellation-split <archive.nct> <new-output-directory> [fragment-bytes] | constellation-inspect <fragment-1.ncfr> [more-fragments...] | constellation-inspect-images <carrier-image1> [more-carriers...] | constellation-reassemble <output-archive.nct> <fragment-1.ncfr> [fragment-2.ncfr ...] | constellation-encode <archive.nct> <new-output-directory> <cover-image1> [cover-image2 ...] | constellation-reassemble-images <output-archive.nct> <carrier-image1> [carrier-image2 ...] | constellation-recovery-encode <archive.nct> <new-output-directory> <shard-bytes> <parity-shards> <cover-image1> [more-images...] | constellation-recovery <output-archive.nct> <shard1.ncrs> [more-shards...] | constellation-recovery-images <output-archive.nct> <carrier1.png> [more-carriers...]".into()),
+        _ => return Err("usage: noctyra encrypt <file> <archive.nct> | decrypt <archive.nct> <file> | encrypt-dir <directory> <archive.nct> | decrypt-dir <archive.nct> <new-directory> | cleanup-staging <parent-directory> | carrier-embed <carrier-image> <encrypted-archive.nct> <output-image> | carrier-extract <carrier-image> <output-archive.nct> | constellation-split <archive.nct> <new-output-directory> [fragment-bytes] | constellation-inspect <fragment-1.ncfr> [more-fragments...] | constellation-inspect-images <carrier-image1> [more-carriers...] | constellation-reassemble <output-archive.nct> <fragment-1.ncfr> [fragment-2.ncfr ...] | constellation-encode <archive.nct> <new-output-directory> <cover-image1> [cover-image2 ...] | constellation-reassemble-images <output-archive.nct> <carrier-image1> [carrier-image2 ...] | constellation-recovery-encode <archive.nct> <new-output-directory> <shard-bytes> <parity-shards> <cover-image1> [more-images...] | constellation-recovery-split <archive.nct> <new-output-directory> <shard-bytes> <parity-shards> | constellation-recovery <output-archive.nct> <shard1.ncrs> [more-shards...] | constellation-recovery-images <output-archive.nct> <carrier1.png> [more-carriers...]".into()),
     }
 
     println!("Operation completed: {}", output.display());
