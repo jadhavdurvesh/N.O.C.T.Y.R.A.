@@ -843,3 +843,68 @@ fn run() -> Result<(), Box<dyn Error>> {
     println!("Operation completed: {}", output.display());
     Ok(())
 }
+
+
+#[cfg(test)]
+mod end_to_end_tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn encrypted_signed_trusted_recovery_round_trip() {
+        let plaintext = b"NOCTYRA end-to-end integration test payload".repeat(100);
+
+        // Sender encrypts the plaintext before any carrier or recovery encoding.
+        let mut encrypted_archive = tempfile::tempfile().unwrap();
+        noctyra_core::encrypt_stream(
+            b"separate archive password",
+            Cursor::new(plaintext.clone()),
+            &mut encrypted_archive,
+        ).unwrap();
+        encrypted_archive.seek(SeekFrom::Start(0)).unwrap();
+        let mut archive = Vec::new();
+        encrypted_archive.read_to_end(&mut archive).unwrap();
+
+        // Sender unlocks an encrypted signing identity and signs the complete shard set.
+        let vault = noctyra_core::create_vault(b"vault password").unwrap();
+        let signing_key = noctyra_core::unlock_vault(b"vault password", &vault).unwrap();
+        let public_key = signing_key.verifying_key().to_bytes();
+        let shards = noctyra_core::create_recovery_shards(&archive, 512, 2).unwrap();
+        let shard_refs: Vec<&[u8]> = shards.iter().map(Vec::as_slice).collect();
+        let manifest = noctyra_core::create_signed_manifest_for_shards(
+            shard_refs.iter().copied(),
+            &signing_key,
+        ).unwrap();
+
+        // Recipient trusts the sender only after explicitly provisioning its public key.
+        let mut trust = noctyra_core::TrustStore::default();
+        let fingerprint = trust.add(public_key, "integration sender".to_owned()).unwrap();
+        let registry = noctyra_core::save_trust_store(b"registry password", &trust).unwrap();
+        let reopened = noctyra_core::open_trust_store(b"registry password", &registry).unwrap();
+        let pinned_key = reopened.trusted_public_key(&fingerprint).unwrap();
+        let verified = noctyra_core::verify_signed_manifest(&manifest, &pinned_key).unwrap();
+
+        // Lose two shards; verify signed digests and reconstruct from the remaining carriers.
+        let surviving: Vec<&[u8]> = shards.iter().enumerate()
+            .filter(|(index, _)| !matches!(index, 0 | 2))
+            .map(|(_, shard)| shard.as_slice())
+            .collect();
+        let report = noctyra_core::verify_manifest_shards(&verified, surviving.iter().copied()).unwrap();
+        assert!(report.recoverable);
+        let recovered_archive = noctyra_core::recover_archive(surviving.iter().copied()).unwrap();
+        assert_eq!(recovered_archive, archive);
+
+        // Only publish plaintext after the NCT AEAD authentication completes.
+        let mut recovered_plaintext = tempfile::tempfile().unwrap();
+        noctyra_core::decrypt_stream(
+            b"separate archive password",
+            Cursor::new(recovered_archive),
+            &mut recovered_plaintext,
+        ).unwrap();
+        recovered_plaintext.seek(SeekFrom::Start(0)).unwrap();
+        let mut actual = Vec::new();
+        recovered_plaintext.read_to_end(&mut actual).unwrap();
+        assert_eq!(actual, plaintext);
+    }
+}
+
