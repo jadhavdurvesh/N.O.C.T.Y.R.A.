@@ -140,6 +140,18 @@ mod tests {
     }
 
     #[test]
+    fn payload_survives_png_and_bmp_encoding_round_trip() {
+        for format in [CarrierFormat::Png, CarrierFormat::Bmp] {
+            let mut carrier = CarrierImage::new(128, 128, format).unwrap();
+            let payload = b"encrypted NCT payload round-trip";
+            embed(&mut carrier, payload).unwrap();
+            let encoded = carrier.encode(format).unwrap();
+            let decoded = CarrierImage::load(&encoded).unwrap();
+            assert_eq!(extract(&decoded).unwrap(), payload);
+        }
+    }
+
+    #[test]
     fn detects_payload_corruption() {
         let mut carrier = CarrierImage::new(128, 128, CarrierFormat::Png).unwrap();
         embed(&mut carrier, b"payload").unwrap();
