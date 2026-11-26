@@ -423,6 +423,8 @@ pub fn decrypt_directory_stream(
 
     let staging = tempfile::Builder::new().prefix(STAGING_PREFIX).tempdir_in(parent).map_err(io_error)?;
     let marker_path = staging.path().join(STAGING_MARKER);
+    let payload_path = staging.path().join("payload");
+    fs::create_dir(&payload_path).map_err(io_error)?;
     let mut marker = OpenOptions::new().write(true).create_new(true).open(&marker_path).map_err(io_error)?;
     marker.write_all(STAGING_MARKER_CONTENT).map_err(io_error)?;
     marker.sync_all().map_err(io_error)?;
@@ -430,7 +432,7 @@ pub fn decrypt_directory_stream(
     let extraction = (|| -> Result<(), ContainerError> {
         let mut buffer = Zeroizing::new(vec![0u8; STREAM_CHUNK_SIZE]);
         for entry in entries {
-            let mut output = staging.path().to_path_buf();
+            let mut output = payload_path.clone();
             for part in entry.path.split('/') { output.push(part); }
             match entry.kind {
                 EntryKind::Directory => fs::create_dir_all(&output).map_err(io_error)?,
@@ -450,22 +452,25 @@ pub fn decrypt_directory_stream(
                 }
             }
         }
-        sync_tree_directories(staging.path())?;
+        sync_tree_directories(&payload_path)?;
         Ok(())
     })();
 
     if let Err(error) = extraction { return Err(error); }
     drop(marker);
-    fs::remove_file(&marker_path).map_err(io_error)?;
-    sync_directory(staging.path())?;
+    sync_directory(&payload_path)?;
 
-    // persist_noclobber uses a same-filesystem rename and refuses to replace an
-    // existing destination, including one created after the earlier existence check.
+    // The marker stays in the private sibling staging directory while the payload
+    // is renamed. A crash before publication leaves a marked directory for the
+    // explicit stale-staging cleanup; a crash after publication leaves only an
+    // empty marked staging shell, never a marker inside the user's recovered tree.
     let staging_path = staging.keep();
-    if let Err(error) = fs::rename(&staging_path, destination) {
+    let staged_payload = staging_path.join("payload");
+    if let Err(error) = fs::rename(&staged_payload, destination) {
         let _ = fs::remove_dir_all(&staging_path);
         return Err(io_error(error));
     }
+    let _ = fs::remove_dir_all(&staging_path);
     sync_directory(parent)?;
     Ok(())
 }
