@@ -24,6 +24,18 @@ pub enum KeyVaultError {
     Authentication,
     #[error("key vault public key does not match its encrypted private key")]
     KeyMismatch,
+    #[error("trust registry is malformed or unsupported")]
+    MalformedTrustStore,
+    #[error("trusted public key is already registered")]
+    DuplicateTrustedKey,
+    #[error("trusted public key was not found")]
+    UnknownTrustedKey,
+    #[error("trusted public key has been revoked")]
+    RevokedTrustedKey,
+    #[error("trust registry has reached its capacity")]
+    TrustStoreFull,
+    #[error("trust label must contain between 1 and 64 UTF-8 bytes")]
+    InvalidTrustLabel,
     #[error("cryptographic random generator failed")]
     Random,
     #[error("key vault cryptographic operation failed")]
@@ -146,6 +158,141 @@ pub fn verify_rotation_certificate(
     old_key.verify_strict(&message, &signature)
         .map_err(|_| KeyVaultError::Authentication)?;
     Ok(new_public_key)
+}
+
+pub const TRUST_STORE_MAGIC: &[u8; 4] = b"NCTS";
+pub const TRUST_STORE_VERSION: u16 = 1;
+pub const TRUST_STORE_HEADER_LEN: usize = 4 + 2 + 16 + 24 + 4;
+pub const MAX_TRUSTED_KEYS: usize = 256;
+pub const MAX_TRUST_LABEL_BYTES: usize = 64;
+pub const MAX_TRUST_STORE_BYTES: usize = 1024 * 1024;
+const TRUST_STORE_DOMAIN: &[u8] = b"NOCTYRA-TRUST-STORE-V1\\0";
+const TRUST_DATA_MAGIC: &[u8; 4] = b"NCTD";
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TrustedKey {
+    pub public_key: [u8; 32],
+    pub label: String,
+    pub revoked: bool,
+}
+impl TrustedKey {
+    pub fn fingerprint(&self) -> String { blake3::hash(&self.public_key).to_hex().to_string() }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TrustStore { entries: Vec<TrustedKey> }
+
+impl TrustStore {
+    pub fn entries(&self) -> &[TrustedKey] { &self.entries }
+    pub fn add(&mut self, public_key: [u8; 32], label: String) -> Result<String, KeyVaultError> {
+        if label.is_empty() || label.len() > MAX_TRUST_LABEL_BYTES { return Err(KeyVaultError::InvalidTrustLabel); }
+        if self.entries.iter().any(|entry| entry.public_key == public_key) { return Err(KeyVaultError::DuplicateTrustedKey); }
+        if self.entries.len() >= MAX_TRUSTED_KEYS { return Err(KeyVaultError::TrustStoreFull); }
+        let fingerprint = blake3::hash(&public_key).to_hex().to_string();
+        self.entries.push(TrustedKey { public_key, label, revoked: false });
+        Ok(fingerprint)
+    }
+    pub fn revoke(&mut self, fingerprint: &str) -> Result<(), KeyVaultError> {
+        let entry = self.entries.iter_mut().find(|entry| entry.fingerprint() == fingerprint)
+            .ok_or(KeyVaultError::UnknownTrustedKey)?;
+        entry.revoked = true;
+        Ok(())
+    }
+    pub fn trusted_public_key(&self, fingerprint: &str) -> Result<[u8; 32], KeyVaultError> {
+        let entry = self.entries.iter().find(|entry| entry.fingerprint() == fingerprint)
+            .ok_or(KeyVaultError::UnknownTrustedKey)?;
+        if entry.revoked { return Err(KeyVaultError::RevokedTrustedKey); }
+        Ok(entry.public_key)
+    }
+}
+
+fn trust_store_aad() -> Vec<u8> {
+    let mut aad = TRUST_STORE_DOMAIN.to_vec();
+    aad.extend_from_slice(TRUST_STORE_MAGIC);
+    aad.extend_from_slice(&TRUST_STORE_VERSION.to_le_bytes());
+    aad
+}
+
+fn encode_trust_entries(store: &TrustStore) -> Result<Zeroizing<Vec<u8>>, KeyVaultError> {
+    if store.entries.len() > MAX_TRUSTED_KEYS { return Err(KeyVaultError::TrustStoreFull); }
+    let mut data = Zeroizing::new(Vec::new());
+    data.extend_from_slice(TRUST_DATA_MAGIC);
+    data.extend_from_slice(&1u16.to_le_bytes());
+    data.extend_from_slice(&(store.entries.len() as u16).to_le_bytes());
+    for entry in &store.entries {
+        if entry.label.is_empty() || entry.label.len() > MAX_TRUST_LABEL_BYTES { return Err(KeyVaultError::InvalidTrustLabel); }
+        data.extend_from_slice(&entry.public_key);
+        data.push(u8::from(entry.revoked));
+        data.push(entry.label.len() as u8);
+        data.extend_from_slice(entry.label.as_bytes());
+    }
+    if data.len() > MAX_TRUST_STORE_BYTES { return Err(KeyVaultError::TrustStoreFull); }
+    Ok(data)
+}
+
+fn decode_trust_entries(data: &[u8]) -> Result<TrustStore, KeyVaultError> {
+    if data.len() < 8 || &data[..4] != TRUST_DATA_MAGIC || u16::from_le_bytes([data[4], data[5]]) != 1 {
+        return Err(KeyVaultError::MalformedTrustStore);
+    }
+    let count = u16::from_le_bytes([data[6], data[7]]) as usize;
+    if count > MAX_TRUSTED_KEYS { return Err(KeyVaultError::MalformedTrustStore); }
+    let mut cursor = 8usize;
+    let mut entries: Vec<TrustedKey> = Vec::with_capacity(count);
+    for _ in 0..count {
+        let end_key = cursor.checked_add(32).ok_or(KeyVaultError::MalformedTrustStore)?;
+        let public_key: [u8; 32] = data.get(cursor..end_key).ok_or(KeyVaultError::MalformedTrustStore)?
+            .try_into().map_err(|_| KeyVaultError::MalformedTrustStore)?;
+        cursor = end_key;
+        let status = *data.get(cursor).ok_or(KeyVaultError::MalformedTrustStore)?;
+        cursor += 1;
+        if status > 1 { return Err(KeyVaultError::MalformedTrustStore); }
+        let label_len = *data.get(cursor).ok_or(KeyVaultError::MalformedTrustStore)? as usize;
+        cursor += 1;
+        if label_len == 0 || label_len > MAX_TRUST_LABEL_BYTES { return Err(KeyVaultError::MalformedTrustStore); }
+        let end_label = cursor.checked_add(label_len).ok_or(KeyVaultError::MalformedTrustStore)?;
+        let label = std::str::from_utf8(data.get(cursor..end_label).ok_or(KeyVaultError::MalformedTrustStore)?)
+            .map_err(|_| KeyVaultError::MalformedTrustStore)?.to_owned();
+        cursor = end_label;
+        if entries.iter().any(|entry| entry.public_key == public_key) { return Err(KeyVaultError::MalformedTrustStore); }
+        entries.push(TrustedKey { public_key, label, revoked: status == 1 });
+    }
+    if cursor != data.len() { return Err(KeyVaultError::MalformedTrustStore); }
+    Ok(TrustStore { entries })
+}
+
+pub fn create_trust_store(password: &[u8]) -> Result<Vec<u8>, KeyVaultError> {
+    save_trust_store(password, &TrustStore::default())
+}
+
+pub fn open_trust_store(password: &[u8], bytes: &[u8]) -> Result<TrustStore, KeyVaultError> {
+    if bytes.len() < TRUST_STORE_HEADER_LEN + 16 || bytes.len() > MAX_TRUST_STORE_BYTES
+        || &bytes[..4] != TRUST_STORE_MAGIC
+        || u16::from_le_bytes([bytes[4], bytes[5]]) != TRUST_STORE_VERSION {
+        return Err(KeyVaultError::MalformedTrustStore);
+    }
+    let ciphertext_len = u32::from_le_bytes(bytes[46..50].try_into().map_err(|_| KeyVaultError::MalformedTrustStore)?) as usize;
+    if ciphertext_len != bytes.len() - TRUST_STORE_HEADER_LEN || ciphertext_len < 16 {
+        return Err(KeyVaultError::MalformedTrustStore);
+    }
+    let mut salt = [0u8; 16]; salt.copy_from_slice(&bytes[6..22]);
+    let mut nonce = [0u8; 24]; nonce.copy_from_slice(&bytes[22..46]);
+    let encrypted = EncryptedPayload { salt, nonce, ciphertext: bytes[TRUST_STORE_HEADER_LEN..].to_vec() };
+    let plaintext = Zeroizing::new(decrypt(password, &encrypted, &trust_store_aad()).map_err(|_| KeyVaultError::Authentication)?);
+    decode_trust_entries(&plaintext)
+}
+
+pub fn save_trust_store(password: &[u8], store: &TrustStore) -> Result<Vec<u8>, KeyVaultError> {
+    let plaintext = encode_trust_entries(store)?;
+    let encrypted = encrypt(password, &plaintext, &trust_store_aad()).map_err(|_| KeyVaultError::Crypto)?;
+    let ciphertext_len = u32::try_from(encrypted.ciphertext.len()).map_err(|_| KeyVaultError::TrustStoreFull)?;
+    let mut output = Vec::with_capacity(TRUST_STORE_HEADER_LEN + encrypted.ciphertext.len());
+    output.extend_from_slice(TRUST_STORE_MAGIC);
+    output.extend_from_slice(&TRUST_STORE_VERSION.to_le_bytes());
+    output.extend_from_slice(&encrypted.salt);
+    output.extend_from_slice(&encrypted.nonce);
+    output.extend_from_slice(&ciphertext_len.to_le_bytes());
+    output.extend_from_slice(&encrypted.ciphertext);
+    Ok(output)
 }
 
 #[cfg(test)]
