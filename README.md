@@ -35,7 +35,7 @@ cargo run -p noctyra-cli -- encrypt-dir .\\my-folder .\\folder.nct
 cargo run -p noctyra-cli -- decrypt-dir .\\folder.nct .\\restored-folder
 ```
 
-The desktop interface also has Encrypt folder and Recover folder operations. The initial tree format buffers the directory payload in memory and is limited to 1 GiB. It is not yet a streaming archive implementation, has not been independently audited, and should be tested only with disposable copies until verification is complete.
+The desktop interface also has Encrypt folder and Recover folder operations. New directory archives use NCT v2/NMF2 and stream file contents through bounded buffers. Extraction authenticates and stages the complete archive before creating the destination. Legacy NMF1 directory archives remain supported by the compatibility path. This is experimental, has not been independently audited, and should be tested only with disposable copies.
 
 ## First usable interface — CLI
 From the repository root, run:
@@ -45,10 +45,10 @@ cargo run -p noctyra-cli -- encrypt .\\input.bin .\\archive.nct
 cargo run -p noctyra-cli -- decrypt .\\archive.nct .\\recovered.bin
 ```
 
-The CLI prompts for passwords without echoing them and writes new outputs through temporary sibling files with no-clobber publication. Single-file encryption now uses NCT v2 streaming records (1 MiB chunks, Zstandard compression, per-chunk XChaCha20-Poly1305 authentication and an authenticated final record). Decryption supports both v1 and v2. Directory-tree operations remain on the original buffered v1 path. Do not use it for irreplaceable data until the implementation has been independently reviewed and tested.
+The CLI prompts for passwords without echoing them and writes new outputs through temporary sibling files with no-clobber publication. Single-file encryption now uses NCT v2 streaming records (1 MiB chunks, Zstandard compression, per-chunk XChaCha20-Poly1305 authentication and an authenticated final record). Decryption supports both v1 and v2. New directory-tree operations use the NCT v2 streaming format; legacy NMF1 directory archives remain readable. Do not use it for irreplaceable data until the implementation has been independently reviewed and tested.
 
 ## Current implementation
-The Rust workspace contains an Argon2id + XChaCha20-Poly1305 engine, the original NCT v1 byte envelope, and an experimental NCT v2 streaming file format. The v2 stream compresses and authenticates bounded chunks independently and requires an authenticated finalization record. The CLI and desktop single-file flows use temporary outputs so incomplete or unauthenticated streams are not published. Directory-tree streaming, image carriers and CONSTELLATION reassembly remain under development. Automated verification is still pending.
+The Rust workspace contains an Argon2id + XChaCha20-Poly1305 engine, the original NCT v1 byte envelope, and an experimental NCT v2 streaming file format. The v2 stream compresses and authenticates bounded chunks independently and requires an authenticated finalization record. The CLI and desktop single-file flows use temporary outputs so incomplete or unauthenticated streams are not published. NMF2 streaming directory serialization and staged extraction are implemented. Image carriers and CONSTELLATION reassembly remain under development. Automated verification is pending for the latest directory-streaming changes.
 
 Early engineering project; not an audited security product. No government, military, or national-security certification is claimed. Do not use as the sole protection for high-value sensitive data.
 
