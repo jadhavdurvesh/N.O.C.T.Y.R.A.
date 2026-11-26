@@ -45,10 +45,10 @@ cargo run -p noctyra-cli -- encrypt .\\input.bin .\\archive.nct
 cargo run -p noctyra-cli -- decrypt .\\archive.nct .\\recovered.bin
 ```
 
-The CLI prompts for passwords without echoing them and refuses to overwrite an existing output file. It currently reads one file into memory and is limited to 1 GiB. Do not use it for irreplaceable data until the implementation has been independently reviewed and tested.
+The CLI prompts for passwords without echoing them and writes new outputs through temporary sibling files with no-clobber publication. Single-file encryption now uses NCT v2 streaming records (1 MiB chunks, Zstandard compression, per-chunk XChaCha20-Poly1305 authentication and an authenticated final record). Decryption supports both v1 and v2. Directory-tree operations remain on the original buffered v1 path. Do not use it for irreplaceable data until the implementation has been independently reviewed and tested.
 
 ## Current implementation
-The Rust workspace now contains an initial Argon2id + XChaCha20-Poly1305 encryption engine and an NCT v1 byte-envelope implementation with wrong-password, tamper, truncation, and trailing-data test cases. The format is still a draft and automated verification has not yet passed. File-tree archives, image carriers, CONSTELLATION reassembly, and the desktop interface remain under development.
+The Rust workspace contains an Argon2id + XChaCha20-Poly1305 engine, the original NCT v1 byte envelope, and an experimental NCT v2 streaming file format. The v2 stream compresses and authenticates bounded chunks independently and requires an authenticated finalization record. The CLI and desktop single-file flows use temporary outputs so incomplete or unauthenticated streams are not published. Directory-tree streaming, image carriers and CONSTELLATION reassembly remain under development. Automated verification is still pending.
 
 Early engineering project; not an audited security product. No government, military, or national-security certification is claimed. Do not use as the sole protection for high-value sensitive data.
 
