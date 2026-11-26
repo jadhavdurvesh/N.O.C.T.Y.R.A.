@@ -142,6 +142,70 @@ fn run() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
+    if command == "constellation-encode" {
+        if paths.len() < 3 || paths.len() > noctyra_core::MAX_FRAGMENT_COUNT + 2 {
+            return Err("usage: noctyra constellation-encode <archive.nct> <new-output-directory> <cover-image1> [cover-image2 ...]".into());
+        }
+        let archive = Zeroizing::new(read_bounded(Path::new(&paths[0]))?);
+        let destination = Path::new(&paths[1]);
+        if destination.exists() { return Err("output directory already exists; refusing to overwrite".into()); }
+        let cover_paths = &paths[2..];
+        let mut smallest_capacity = usize::MAX;
+        for path in cover_paths {
+            let image_bytes = Zeroizing::new(read_carrier_file(Path::new(path))?);
+            let carrier = noctyra_core::CarrierImage::load(&image_bytes)?;
+            let capacity = noctyra_core::estimate_carrier_capacity(&carrier).payload_bytes
+                .saturating_sub(noctyra_core::FRAGMENT_HEADER_LEN);
+            smallest_capacity = smallest_capacity.min(capacity);
+        }
+        let fragment_size = smallest_capacity.min(noctyra_core::MAX_FRAGMENT_DATA_BYTES);
+        if fragment_size == 0 { return Err("one or more cover images cannot hold a CONSTELLATION fragment header and payload".into()); }
+        let fragments = noctyra_core::fragment_archive(&archive, fragment_size)?;
+        if fragments.len() > cover_paths.len() {
+            return Err(format!("not enough cover images: {} fragments required, {} supplied", fragments.len(), cover_paths.len()).into());
+        }
+        let parent = destination.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+        let staging = tempfile::Builder::new().prefix(".noctyra-constellation-").tempdir_in(parent)?;
+        for (index, fragment) in fragments.iter().enumerate() {
+            let image_bytes = Zeroizing::new(read_carrier_file(Path::new(&cover_paths[index]))?);
+            let mut carrier = noctyra_core::CarrierImage::load(&image_bytes)?;
+            noctyra_core::embed_carrier(&mut carrier, fragment)?;
+            let format = carrier.format();
+            let encoded = Zeroizing::new(carrier.encode(format)?);
+            let output = staging.path().join(format!("carrier-{:04}.{}", index + 1, format.extension()));
+            let mut file = File::options().write(true).create_new(true).open(output)?;
+            file.write_all(&encoded)?;
+            file.sync_all()?;
+        }
+        let staging_path = staging.keep();
+        if let Err(error) = fs::rename(&staging_path, destination) {
+            let _ = fs::remove_dir_all(&staging_path);
+            return Err(error.into());
+        }
+        println!("CONSTELLATION encoded {} image carriers in {}", fragments.len(), destination.display());
+        return Ok(());
+    }
+
+    if command == "constellation-reassemble-images" {
+        if paths.len() < 2 || paths.len() > noctyra_core::MAX_FRAGMENT_COUNT + 1 {
+            return Err("usage: noctyra constellation-reassemble-images <output-archive.nct> <carrier-image1> [carrier-image2 ...]".into());
+        }
+        let mut fragments = Vec::with_capacity(paths.len() - 1);
+        for path in &paths[1..] {
+            let image_bytes = Zeroizing::new(read_carrier_file(Path::new(path))?);
+            let carrier = noctyra_core::CarrierImage::load(&image_bytes)?;
+            fragments.push(Zeroizing::new(noctyra_core::extract_carrier(&carrier)?));
+        }
+        let refs: Vec<&[u8]> = fragments.iter().map(|fragment| fragment.as_slice()).collect();
+        let archive = Zeroizing::new(noctyra_core::reassemble_fragments(refs)?);
+        let output = Path::new(&paths[0]);
+        let mut temp = temporary_output(output)?;
+        temp.as_file_mut().write_all(&archive)?;
+        publish(temp, output)?;
+        println!("CONSTELLATION image reassembly complete: {}", output.display());
+        return Ok(());
+    }
+
     if command == "constellation-reassemble" {
         if paths.len() < 2 || paths.len() > noctyra_core::MAX_FRAGMENT_COUNT + 1 {
             return Err("usage: noctyra constellation-reassemble <output-archive.nct> <fragment-1.ncfr> [fragment-2.ncfr ...]".into());
@@ -240,7 +304,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                 other => return Err(format!("unsupported NCT directory archive version: {other}").into()),
             }
         }
-        _ => return Err("usage: noctyra encrypt <file> <archive.nct> | decrypt <archive.nct> <file> | encrypt-dir <directory> <archive.nct> | decrypt-dir <archive.nct> <new-directory> | cleanup-staging <parent-directory> | carrier-embed <carrier-image> <encrypted-archive.nct> <output-image> | carrier-extract <carrier-image> <output-archive.nct> | constellation-split <archive.nct> <new-output-directory> [fragment-bytes] | constellation-reassemble <output-archive.nct> <fragment-1.ncfr> [fragment-2.ncfr ...]".into()),
+        _ => return Err("usage: noctyra encrypt <file> <archive.nct> | decrypt <archive.nct> <file> | encrypt-dir <directory> <archive.nct> | decrypt-dir <archive.nct> <new-directory> | cleanup-staging <parent-directory> | carrier-embed <carrier-image> <encrypted-archive.nct> <output-image> | carrier-extract <carrier-image> <output-archive.nct> | constellation-split <archive.nct> <new-output-directory> [fragment-bytes] | constellation-reassemble <output-archive.nct> <fragment-1.ncfr> [fragment-2.ncfr ...] | constellation-encode <archive.nct> <new-output-directory> <cover-image1> [cover-image2 ...] | constellation-reassemble-images <output-archive.nct> <carrier-image1> [carrier-image2 ...]".into()),
     }
 
     println!("Operation completed: {}", output.display());
