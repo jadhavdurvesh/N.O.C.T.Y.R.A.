@@ -20,6 +20,7 @@ The Rust backend uses the shared NOCTYRA core for archive encryption and decrypt
 - NCT v2 streaming file encryption and authenticated decryption; v1 file archives remain readable.
 - Temporary sibling output and no-clobber publication after final authentication.
 - New directory operations use NCT v2/NMF2 streaming; legacy NMF1 directory archives remain readable through the buffered compatibility path.
+- The Rust backend exposes an explicit `cleanup_staging(parent_path)` command for marked staging directories older than 24 hours. The current frontend does not yet expose a recovery-cleanup screen.
 - No network upload or account service.
 
 ## Limitations
