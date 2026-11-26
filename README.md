@@ -1,6 +1,14 @@
+ <p align="center">
+  <img
+    src="assets/NOCTYRA%20Futuristic%20Orbital%20Network.png"
+    alt="NOCTYRA — Networked Obscured Cryptographic Transfer & Recovery Architecture"
+    width="100%"
+  />
+</p>
+
 # N.O.C.T.Y.R.A.
 
-**Neural Obfuscation & Cryptographic Transmission Yielding Resilient Archives**
+**Networked Obscured Cryptographic Transfer & Recovery Architecture**
 
 NOCTYRA is a private cross-platform personal information-protection project. It combines authenticated encrypted archives with image-carrier research and a resilient multi-carrier transport format.
 
