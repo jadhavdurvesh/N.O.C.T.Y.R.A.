@@ -93,7 +93,9 @@
 - [x] Add checkpoint status and missing-index reporting; revalidate all carriers on resume
 - [x] Add independent 256-bit recovery-key credential generation and NCT encrypt/decrypt mode
 - [ ] Add dual password/recovery-key wrapping of one random archive data-encryption key in a versioned NCT envelope
-- [ ] Add streaming/disk-backed shard reconstruction to reduce peak memory usage
+- [x] Add 64 KiB stripe-based Reed-Solomon reconstruction to a temporary seekable output without allocating a second full codeword/archive
+- [ ] Stream carrier reads into authenticated scratch storage instead of loading all carrier frames into memory
+- [ ] Add scratch-space quotas, truncation and crash cleanup guarantees
 - [ ] Add a dedicated carrier capacity planning report and batch diagnostics output
 - [ ] Add crash-injection, disk-full and interrupted-write recovery tests
 - [ ] Add cross-platform filesystem publication and permission tests
