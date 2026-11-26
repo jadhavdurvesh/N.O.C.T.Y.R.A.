@@ -91,18 +91,30 @@ fn encrypt_directory(input_path: String, output_path: String, password: String) 
     let password = Zeroizing::new(password);
     if password.is_empty() { return Err("Password cannot be empty.".into()); }
     if Path::new(&output_path).exists() { return Err("Output already exists; refusing to overwrite.".into()); }
-    let archive = noctyra_core::seal_directory(password.as_bytes(), &input_path)
-        .map_err(|e| format!("Directory archive failed: {e}"))?;
-    write_new(&output_path, &archive)
+    let mut temp = temporary_output(&output_path)?;
+    noctyra_core::encrypt_directory_stream(password.as_bytes(), &input_path, temp.as_file_mut())
+        .map_err(|e| format!("Streaming directory archive failed: {e}"))?;
+    publish(temp, &output_path)
 }
 
 #[tauri::command]
 fn decrypt_directory(input_path: String, output_path: String, password: String) -> Result<(), String> {
     let password = Zeroizing::new(password);
     if password.is_empty() { return Err("Password cannot be empty.".into()); }
-    let archive = Zeroizing::new(read_bounded(&input_path)?);
-    noctyra_core::extract_directory(password.as_bytes(), &archive, &output_path)
-        .map_err(|e| format!("Directory recovery failed: {e}"))
+    let mut input = validate_stream_input(&input_path)?;
+    let mut prefix = [0u8; 6];
+    input.read_exact(&mut prefix).map_err(|_| "Archive header is truncated.".to_string())?;
+    input.seek(SeekFrom::Start(0)).map_err(|e| format!("Cannot seek archive: {e}"))?;
+    match u16::from_le_bytes([prefix[4], prefix[5]]) {
+        2 => noctyra_core::decrypt_directory_stream(password.as_bytes(), input, &output_path)
+            .map_err(|e| format!("Streaming directory recovery failed: {e}")),
+        1 => {
+            let archive = Zeroizing::new(read_bounded(&input_path)?);
+            noctyra_core::extract_directory(password.as_bytes(), &archive, &output_path)
+                .map_err(|e| format!("Legacy directory recovery failed: {e}"))
+        }
+        other => Err(format!("Unsupported NCT directory archive version: {other}")),
+    }
 }
 
 fn main() {
