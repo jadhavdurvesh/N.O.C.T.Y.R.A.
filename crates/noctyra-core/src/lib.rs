@@ -16,3 +16,5 @@ pub const PRODUCT_NAME: &str = "NOCTYRA";
 
 pub use noctyra_image::{CarrierFormat, CarrierImage, ImageError};
 pub use noctyra_steganography::{embed as embed_carrier, estimate_capacity as estimate_carrier_capacity, extract as extract_carrier, Capacity as CarrierCapacity, CarrierCodecError};
+
+pub use noctyra_constellation::{fragment_archive, fragment_archive_with_id, inspect_fragments, parse_fragment, reassemble_fragments, ConstellationError, Fragment as ConstellationFragment, ReassemblyReport as ConstellationReport, DEFAULT_FRAGMENT_DATA_BYTES, MAX_FRAGMENT_DATA_BYTES, MAX_FRAGMENT_COUNT, MAX_ARCHIVE_BYTES};
