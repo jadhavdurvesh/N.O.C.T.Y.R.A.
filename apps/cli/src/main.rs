@@ -44,6 +44,17 @@ fn read_bounded(path: &Path) -> Result<Vec<u8>, Box<dyn Error>> {
     Ok(bytes)
 }
 
+fn read_carrier_file(path: &Path) -> Result<Vec<u8>, Box<dyn Error>> {
+    check_regular_file(path)?;
+    let metadata = fs::metadata(path)?;
+    let limit = noctyra_image::MAX_CARRIER_FILE_BYTES as u64;
+    if metadata.len() > limit { return Err("carrier image exceeds the 64 MiB input limit".into()); }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    File::open(path)?.take(limit + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > limit { return Err("carrier image grew beyond the 64 MiB input limit while being read".into()); }
+    Ok(bytes)
+}
+
 fn temporary_output(path: &Path) -> Result<tempfile::NamedTempFile, Box<dyn Error>> {
     let parent = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
     Ok(tempfile::NamedTempFile::new_in(parent)?)
@@ -100,7 +111,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     if command == "carrier-embed" {
         if paths.len() != 3 { return Err("usage: noctyra carrier-embed <carrier-image> <encrypted-archive.nct> <output-image>".into()); }
-        let image_bytes = Zeroizing::new(read_bounded(Path::new(&paths[0]))?);
+        let image_bytes = Zeroizing::new(read_carrier_file(Path::new(&paths[0]))?);
         let archive_bytes = Zeroizing::new(read_bounded(Path::new(&paths[1]))?);
         let mut carrier = noctyra_core::CarrierImage::load(&image_bytes)?;
         noctyra_core::embed_carrier(&mut carrier, &archive_bytes)?;
