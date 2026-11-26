@@ -10,6 +10,7 @@ members = [
     "crates/noctyra-constellation",
     "crates/noctyra-recovery",
     "crates/noctyra-validation",
+    "apps/cli",
 ]
 
 [workspace.package]
