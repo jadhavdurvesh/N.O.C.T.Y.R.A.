@@ -32,7 +32,7 @@ h1 span{color:#8295a7;font-weight:400}
 .card-head{display:flex;justify-content:space-between;align-items:center}
 h2{font-size:17px;margin:7px 0 0;font-weight:600}
 .index{font:10px 'DM Mono',monospace;color:#627687}
-.mode-switch{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:22px 0 27px}
+.mode-switch{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:22px 0 27px}.mode-switch-four{grid-template-columns:repeat(4,minmax(0,1fr))}.mode-switch-four .mode{padding:12px 10px;gap:8px}.mode-switch-four .mode b{font-size:10px}.mode-switch-four .mode small{font-size:9px}
 .mode{border:1px solid #2b3b49;background:#0d151e;color:#91a1ae;text-align:left;padding:14px 16px;display:flex;align-items:center;gap:13px;transition:.18s}
 .mode b{display:block;font-size:12px;color:#dce5ed;font-weight:600}
 .mode small{display:block;font-size:10px;color:#788b9b;margin-top:4px}
