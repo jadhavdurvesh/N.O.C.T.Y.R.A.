@@ -375,6 +375,9 @@ pub struct VerifiedManifest(SignedManifest);
 impl VerifiedManifest {
     pub fn signer_public_key(&self) -> [u8; 32] { self.0.signer_public_key }
     pub fn transfer_id(&self) -> [u8; 16] { self.0.transfer_id }
+    pub fn data_shards(&self) -> u16 { self.0.data_shards }
+    pub fn parity_shards(&self) -> u16 { self.0.parity_shards }
+    pub fn shard_size(&self) -> u32 { self.0.shard_size }
 }
 
 fn manifest_header(
