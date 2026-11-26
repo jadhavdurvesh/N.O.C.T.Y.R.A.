@@ -49,4 +49,11 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "constellation_recovery"
+path = "fuzz_targets/constellation_recovery.rs"
+test = false
+doc = false
+bench = false
+
 [workspace]
