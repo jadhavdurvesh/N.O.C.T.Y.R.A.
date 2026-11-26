@@ -9,6 +9,9 @@ publish = false
 noctyra-crypto = { path = "../noctyra-crypto" }
 thiserror.workspace = true
 zeroize.workspace = true
+rand_core.workspace = true
+blake3.workspace = true
+zstd.workspace = true
 
 [dev-dependencies]
 tempfile = "3"
