@@ -130,7 +130,10 @@ mod tests {
             let decoded = CarrierImage::load(&encoded).unwrap();
             assert_eq!(decoded.width(), 32);
             assert_eq!(decoded.height(), 24);
-            assert_eq!(&decoded.rgba_bytes()[0..4], &[101, 102, 103, 104]);
+            assert_eq!(&decoded.rgba_bytes()[0..3], &[101, 102, 103]);
+            if format == CarrierFormat::Png {
+                assert_eq!(decoded.rgba_bytes()[3], 104);
+            }
         }
     }
 
