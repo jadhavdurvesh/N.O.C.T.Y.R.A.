@@ -323,7 +323,7 @@ where I: IntoIterator<Item = &'a [u8]> {
 /// publish the scratch file unless this function returns successfully.
 pub fn recover_archive_to_writer<'a, I, W>(inputs: I, output: &mut W) -> Result<(), ConstellationError>
 where I: IntoIterator<Item = &'a [u8]>, W: std::io::Read + std::io::Write + std::io::Seek {
-    use std::io::{Read, Seek, SeekFrom, Write};
+    use std::io::SeekFrom;
     const STRIPE: usize = 64 * 1024;
     let mut first: Option<RecoveryShardView<'a>> = None;
     let mut slots: Vec<Option<&'a [u8]>> = Vec::new();
@@ -364,13 +364,13 @@ where I: IntoIterator<Item = &'a [u8]>, W: std::io::Read + std::io::Write + std:
         if !codec.verify(&complete).map_err(|_| ConstellationError::RecoveryFailed)? {
             return Err(ConstellationError::RecoveryFailed);
         }
-        for data_index in 0..k {
+        for (data_index, data_shard) in complete.iter().take(k).enumerate() {
             let position = data_index.checked_mul(shard_size).and_then(|v| v.checked_add(offset))
                 .ok_or(ConstellationError::ArchiveTooLarge)?;
             if position >= archive_len { continue; }
             let count = (archive_len - position).min(end - offset);
             output.seek(SeekFrom::Start(position as u64)).map_err(|_| ConstellationError::RecoveryFailed)?;
-            output.write_all(&complete[data_index][..count]).map_err(|_| ConstellationError::RecoveryFailed)?;
+            output.write_all(&data_shard[..count]).map_err(|_| ConstellationError::RecoveryFailed)?;
         }
     }
     output.flush().map_err(|_| ConstellationError::RecoveryFailed)?;
