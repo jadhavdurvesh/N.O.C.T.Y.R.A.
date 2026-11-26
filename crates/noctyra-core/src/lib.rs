@@ -22,3 +22,5 @@ pub use noctyra_constellation::{create_recovery_shards, create_recovery_shards_w
 pub use noctyra_keystore::{create_vault, inspect_vault, unlock_vault, create_rotation_certificate, verify_rotation_certificate, create_trust_store, open_trust_store, save_trust_store, TrustStore, TrustedKey, KeyVaultError, ROTATION_CERTIFICATE_LEN, VAULT_FILE_LEN, TRUST_STORE_HEADER_LEN, MAX_TRUST_STORE_BYTES};
 
 pub use noctyra_constellation::MAX_MANIFEST_LEN;
+
+pub use noctyra_recovery::{CheckpointError, RecoveryCheckpoint, RecoveryStatus, MAX_CHECKPOINT_SHARDS};
