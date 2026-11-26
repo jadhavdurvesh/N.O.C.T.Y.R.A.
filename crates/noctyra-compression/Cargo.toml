@@ -1,0 +1,10 @@
+[package]
+name = "noctyra-compression"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+zstd.workspace = true
+thiserror.workspace = true
