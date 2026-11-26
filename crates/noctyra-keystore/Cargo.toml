@@ -9,5 +9,6 @@ publish = false
 noctyra-crypto = { path = "../noctyra-crypto" }
 ed25519-dalek.workspace = true
 zeroize.workspace = true
+rand_core.workspace = true
 thiserror.workspace = true
 blake3.workspace = true
