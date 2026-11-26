@@ -228,10 +228,77 @@ fn constellation_join(fragment_paths: Vec<String>, output_path: String) -> Resul
     Ok(archive.len())
 }
 
+
+fn read_recovery_key(path: &str) -> Result<Zeroizing<Vec<u8>>, String> {
+    let metadata = fs::symlink_metadata(path).map_err(|e| format!("Cannot inspect recovery key: {e}"))?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() != 32 {
+        return Err("Recovery key must be a regular 32-byte file.".into());
+    }
+    let mut key = Zeroizing::new(Vec::with_capacity(32));
+    File::open(path).map_err(|e| format!("Cannot open recovery key: {e}"))?
+        .take(33).read_to_end(&mut key).map_err(|e| format!("Cannot read recovery key: {e}"))?;
+    if key.len() != 32 { return Err("Recovery key must contain exactly 32 bytes.".into()); }
+    Ok(key)
+}
+
+#[tauri::command]
+fn generate_recovery_key(output_path: String) -> Result<(), String> {
+    use rand_core::RngCore;
+    let mut key = Zeroizing::new([0u8; 32]);
+    rand_core::OsRng.try_fill_bytes(&mut key[..])
+        .map_err(|_| "Operating-system random generator failed.".to_string())?;
+    let mut temp = temporary_output(&output_path)?;
+    temp.as_file_mut().write_all(&key[..]).map_err(|e| format!("Cannot write recovery key: {e}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        temp.as_file().set_permissions(fs::Permissions::from_mode(0o600))
+            .map_err(|e| format!("Cannot restrict recovery-key permissions: {e}"))?;
+    }
+    temp.as_file().sync_all().map_err(|e| format!("Cannot flush recovery key: {e}"))?;
+    temp.persist_noclobber(Path::new(&output_path))
+        .map_err(|e| format!("Cannot publish recovery key without overwriting: {}", e.error))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn encrypt_file_with_recovery_key(input_path: String, output_path: String, key_path: String) -> Result<(), String> {
+    let key = read_recovery_key(&key_path)?;
+    let input = validate_stream_input(&input_path)?;
+    let mut temp = temporary_output(&output_path)?;
+    noctyra_core::encrypt_stream(&key, input, temp.as_file_mut())
+        .map_err(|e| format!("Recovery-key encryption failed: {e}"))?;
+    publish(temp, &output_path)
+}
+
+#[tauri::command]
+fn decrypt_file_with_recovery_key(input_path: String, output_path: String, key_path: String) -> Result<(), String> {
+    let key = read_recovery_key(&key_path)?;
+    let mut input = validate_stream_input(&input_path)?;
+    let mut prefix = [0u8; 6];
+    input.read_exact(&mut prefix).map_err(|_| "Archive header is truncated.".to_string())?;
+    input.seek(SeekFrom::Start(0)).map_err(|e| format!("Cannot seek archive: {e}"))?;
+    let mut temp = temporary_output(&output_path)?;
+    match u16::from_le_bytes([prefix[4], prefix[5]]) {
+        2 => noctyra_core::decrypt_stream(&key, input, temp.as_file_mut())
+            .map_err(|e| format!("Recovery-key authentication failed: {e}"))?,
+        1 => {
+            let archive = Zeroizing::new(read_bounded(&input_path)?);
+            let plaintext = Zeroizing::new(noctyra_core::open_archive(&key, &archive)
+                .map_err(|e| format!("Recovery-key authentication failed: {e}"))?);
+            temp.as_file_mut().write_all(&plaintext)
+                .map_err(|e| format!("Cannot write recovered file: {e}"))?;
+        }
+        other => return Err(format!("Unsupported NCT archive version: {other}")),
+    }
+    publish(temp, &output_path)
+}
+
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![encrypt_file, decrypt_file, encrypt_directory, decrypt_directory, cleanup_staging, conceal_archive, reveal_archive, constellation_split, constellation_join])
+        .invoke_handler(tauri::generate_handler![encrypt_file, decrypt_file, encrypt_directory, decrypt_directory, cleanup_staging, conceal_archive, reveal_archive, constellation_split, constellation_join, generate_recovery_key, encrypt_file_with_recovery_key, decrypt_file_with_recovery_key])
         .run(tauri::generate_context!())
         .expect("NOCTYRA desktop runtime failed");
 }
