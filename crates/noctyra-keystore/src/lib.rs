@@ -3,7 +3,7 @@
 //! NCKV v1 stores a public key in cleartext and encrypts the 32-byte Ed25519
 //! seed with NOCTYRA's Argon2id + XChaCha20-Poly1305 password encryption.
 //! The public key and fixed header are authenticated as associated data.
-use ed25519_dalek::SigningKey;
+use ed25519_dalek::{SigningKey, Verifier, VerifyingKey};
 use noctyra_crypto::{decrypt, encrypt, EncryptedPayload};
 use thiserror::Error;
 use zeroize::Zeroizing;
@@ -99,6 +99,53 @@ pub fn unlock_vault(password: &[u8], bytes: &[u8]) -> Result<SigningKey, KeyVaul
         return Err(KeyVaultError::KeyMismatch);
     }
     Ok(signing_key)
+}
+
+pub const ROTATION_MAGIC: &[u8; 4] = b"NCRT";
+pub const ROTATION_VERSION: u16 = 1;
+pub const ROTATION_CERTIFICATE_LEN: usize = 4 + 2 + 32 + 32 + 64;
+const ROTATION_DOMAIN: &[u8] = b"NOCTYRA-KEY-ROTATION-V1\\0";
+
+/// A continuity certificate: the currently trusted key authorizes its successor.
+pub fn create_rotation_certificate(
+    old_key: &SigningKey,
+    new_public_key: &[u8; 32],
+) -> Vec<u8> {
+    let old_public_key = old_key.verifying_key().to_bytes();
+    let mut body = Vec::with_capacity(70);
+    body.extend_from_slice(ROTATION_MAGIC);
+    body.extend_from_slice(&ROTATION_VERSION.to_le_bytes());
+    body.extend_from_slice(&old_public_key);
+    body.extend_from_slice(new_public_key);
+    let mut message = ROTATION_DOMAIN.to_vec();
+    message.extend_from_slice(&body);
+    let signature = ed25519_dalek::Signer::sign(old_key, &message);
+    body.extend_from_slice(&signature.to_bytes());
+    body
+}
+
+/// Verify continuity from an independently trusted old public key.
+/// Returns the successor public key; it does not automatically trust it.
+pub fn verify_rotation_certificate(
+    bytes: &[u8],
+    trusted_old_public_key: &[u8; 32],
+) -> Result<[u8; 32], KeyVaultError> {
+    if bytes.len() != ROTATION_CERTIFICATE_LEN || &bytes[..4] != ROTATION_MAGIC
+        || u16::from_le_bytes([bytes[4], bytes[5]]) != ROTATION_VERSION {
+        return Err(KeyVaultError::Malformed);
+    }
+    if &bytes[6..38] != trusted_old_public_key { return Err(KeyVaultError::KeyMismatch); }
+    let old_key = ed25519_dalek::VerifyingKey::from_bytes(trusted_old_public_key)
+        .map_err(|_| KeyVaultError::Malformed)?;
+    let mut new_public_key = [0u8; 32];
+    new_public_key.copy_from_slice(&bytes[38..70]);
+    let signature = ed25519_dalek::Signature::from_slice(&bytes[70..])
+        .map_err(|_| KeyVaultError::Malformed)?;
+    let mut message = ROTATION_DOMAIN.to_vec();
+    message.extend_from_slice(&bytes[..70]);
+    old_key.verify_strict(&message, &signature)
+        .map_err(|_| KeyVaultError::Authentication)?;
+    Ok(new_public_key)
 }
 
 #[cfg(test)]
