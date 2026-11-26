@@ -561,6 +561,15 @@ mod tests {
     }
 
     #[test]
+    fn manifest_rejects_noncanonical_entry_order() {
+        let mut unsorted = b"NMF2".to_vec();
+        unsorted.extend_from_slice(&2u32.to_le_bytes());
+        unsorted.extend_from_slice(&manifest_entry(1, "z-last", 0));
+        unsorted.extend_from_slice(&manifest_entry(1, "a-first", 0));
+        assert!(validate_directory_manifest(&mut Cursor::new(unsorted)).is_err());
+    }
+
+    #[test]
     fn manifest_rejects_excessive_entry_count_and_trailing_bytes() {
         let mut excessive = b"NMF2".to_vec();
         excessive.extend_from_slice(&u32::MAX.to_le_bytes());
