@@ -117,10 +117,17 @@ fn decrypt_directory(input_path: String, output_path: String, password: String) 
     }
 }
 
+
+#[tauri::command]
+fn cleanup_staging(parent_path: String) -> Result<usize, String> {
+    noctyra_core::cleanup_stale_staging(&parent_path)
+        .map_err(|e| format!("Staging recovery cleanup failed: {e}"))
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![encrypt_file, decrypt_file, encrypt_directory, decrypt_directory])
+        .invoke_handler(tauri::generate_handler![encrypt_file, decrypt_file, encrypt_directory, decrypt_directory, cleanup_staging])
         .run(tauri::generate_context!())
         .expect("NOCTYRA desktop runtime failed");
 }
