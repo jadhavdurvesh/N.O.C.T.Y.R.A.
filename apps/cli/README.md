@@ -32,6 +32,17 @@ cargo run -p noctyra-cli -- cleanup-staging .\\
 
 The cleanup command only considers directories carrying the NOCTYRA staging prefix and exact marker file. It does not touch arbitrary folders. Do not run it while an extraction is active.
 
+## Image carrier commands
+
+The experimental carrier codec embeds an already-encrypted NCT archive into PNG or BMP RGB least-significant bits. Alpha is preserved. The NCAR v1 frame contains a payload length and BLAKE3 corruption-detection digest; NCT authentication must still be checked by decrypting the extracted archive.
+
+```powershell
+cargo run -p noctyra-cli -- carrier-embed .\\cover.png .\\archive.nct .\\carrier.png
+cargo run -p noctyra-cli -- carrier-extract .\\carrier.png .\\extracted.nct
+```
+
+The carrier input is limited to 64 MiB, decoded RGBA allocation to 512 MiB, dimensions to 16,384 per side, and payload to 16 MiB. Lossy image processing can destroy the payload. The codec does not guarantee concealment or resistance to steganalysis.
+
 ## Current limitations
 - Legacy NMF1 directory archives remain buffered; new directory archives use NMF2 streaming.
 - No image carriers or CONSTELLATION packet splitting yet.
