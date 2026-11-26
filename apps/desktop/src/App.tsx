@@ -25,12 +25,9 @@ function App() {
     if (typeof selected === "string") { setInputPath(selected); setOutputPath(""); setMessage(""); }
   }
   async function chooseOutput() {
-    if (mode === "decrypt-dir") {
-      const selected = await open({ multiple: false, directory: true });
-      if (typeof selected === "string") setOutputPath(selected);
-      return;
-    }
-    const selected = await save({ defaultPath: isEncryption(mode) ? "archive.nct" : "recovered-file" });
+    const selected = await save({
+      defaultPath: mode === "decrypt-dir" ? "recovered-folder" : isEncryption(mode) ? "archive.nct" : "recovered-file",
+    });
     if (selected) setOutputPath(selected);
   }
   async function runOperation() {
