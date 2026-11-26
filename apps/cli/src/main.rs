@@ -128,6 +128,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         let private_path = Path::new(&paths[0]);
         let public_path = Path::new(&paths[1]);
         if private_path == public_path { return Err("private and public key paths must be different".into()); }
+        if private_path.exists() || public_path.exists() { return Err("refusing to overwrite an existing key file".into()); }
         let mut secret = Zeroizing::new([0u8; 32]);
         OsRng.try_fill_bytes(&mut *secret).map_err(|_| "operating-system random generator failed")?;
         let signing_key = SigningKey::from_bytes(&secret);
@@ -145,7 +146,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         let private_path = Path::new(&paths[paths.len() - 2]);
         let output = Path::new(&paths[paths.len() - 1]);
         let key_bytes = Zeroizing::new(read_limited(private_path, 32, "Ed25519 private key")?);
-        let secret: [u8; 32] = key_bytes.as_slice().try_into().map_err(|_| "Ed25519 private key must be exactly 32 raw bytes")?;
+        let secret = Zeroizing::new(<[u8; 32]>::try_from(key_bytes.as_slice()).map_err(|_| "Ed25519 private key must be exactly 32 raw bytes")?);
         let signing_key = SigningKey::from_bytes(&secret);
         let mut shards = Vec::with_capacity(paths.len() - 2);
         for path in &paths[..paths.len() - 2] {
