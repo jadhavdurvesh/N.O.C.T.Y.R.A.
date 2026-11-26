@@ -15,6 +15,8 @@
 - An attacker supplies malformed images, manifests, or archive files.
 - An attacker attempts password guessing against a stolen archive.
 - A carrier is recompressed or otherwise modified during ordinary file handling.
+- A crafted PNG/BMP attempts to exhaust decoder memory or trigger parser defects.
+- An attacker changes embedded carrier bits or forges NCAR framing metadata.
 
 ## Out-of-scope or limited-protection threats
 
@@ -32,6 +34,8 @@
 - Clear failure on authentication errors.
 - No plaintext extraction before complete authentication of the relevant content.
 - Recovery mechanisms that detect missing or corrupt parts rather than silently guessing.
+- Carrier decoding has strict compressed-input, dimension and decoded-allocation limits.
+- The NCAR digest detects accidental corruption; NCT authenticated encryption remains the security boundary.
 
 ## Assumptions to validate
 
