@@ -471,30 +471,38 @@ pub fn verify_signed_manifest(bytes: &[u8], trusted_public_key: &[u8; 32]) -> Re
     Ok(VerifiedManifest(manifest))
 }
 
+/// Verify one candidate shard against the signed manifest and return its index.
+pub fn verify_manifest_shard(verified: &VerifiedManifest, bytes: &[u8]) -> Result<u16, ConstellationError> {
+    let manifest = &verified.0;
+    let shard = parse_recovery_shard(bytes)?;
+    if shard.transfer_id != manifest.transfer_id || shard.archive_len != manifest.archive_len
+        || shard.data_shards != manifest.data_shards || shard.parity_shards != manifest.parity_shards
+        || shard.shard_size != manifest.shard_size || shard.archive_digest != manifest.archive_digest
+        || digest(&shard.data) != manifest.shard_digests[shard.index as usize] {
+        return Err(ConstellationError::ManifestShardMismatch);
+    }
+    Ok(shard.index)
+}
+
 /// Ensure every supplied shard belongs to the exact signed set.
 pub fn verify_manifest_shards<'a, I>(verified: &VerifiedManifest, inputs: I) -> Result<RecoveryReport, ConstellationError>
 where I: IntoIterator<Item = &'a [u8]> {
     let manifest = &verified.0;
-    let inputs: Vec<&[u8]> = inputs.into_iter().collect();
-    let _ = inspect_recovery_shards(inputs.iter().copied())?;
-    let mut seen = vec![false; manifest.data_shards as usize + manifest.parity_shards as usize];
+    let total = manifest.data_shards as usize + manifest.parity_shards as usize;
+    let mut seen = vec![false; total];
     for input in inputs {
-        let shard = parse_recovery_shard(input)?;
-        if shard.transfer_id != manifest.transfer_id || shard.archive_len != manifest.archive_len
-            || shard.data_shards != manifest.data_shards || shard.parity_shards != manifest.parity_shards
-            || shard.shard_size != manifest.shard_size || shard.archive_digest != manifest.archive_digest
-            || digest(&shard.data) != manifest.shard_digests[shard.index as usize] {
-            return Err(ConstellationError::ManifestShardMismatch);
-        }
-        seen[shard.index as usize] = true;
+        let index = verify_manifest_shard(verified, input)? as usize;
+        if seen[index] { return Err(ConstellationError::DuplicateFragment(index as u32)); }
+        seen[index] = true;
     }
+    let received = seen.iter().filter(|present| **present).count();
     Ok(RecoveryReport {
         transfer_id: manifest.transfer_id,
         data_shards: manifest.data_shards,
         parity_shards: manifest.parity_shards,
-        received_shards: seen.iter().filter(|present| **present).count() as u16,
+        received_shards: received as u16,
         missing_indices: seen.iter().enumerate().filter_map(|(i, present)| (!present).then_some(i as u16)).collect(),
-        recoverable: seen.iter().filter(|present| **present).count() >= manifest.data_shards as usize,
+        recoverable: received >= manifest.data_shards as usize,
     })
 }
 
