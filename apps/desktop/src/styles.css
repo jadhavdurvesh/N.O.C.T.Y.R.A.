@@ -1,0 +1,71 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap');
+
+:root{font-family:Manrope,Inter,ui-sans-serif,system-ui,sans-serif;color:#e8edf4;background:#080b10;font-synthesis:none;text-rendering:optimizeLegibility}
+*{box-sizing:border-box}
+body{margin:0;min-width:900px;min-height:100vh;background:radial-gradient(ellipse at 70% 0%,rgba(40,67,88,.19),transparent 44%),#080b10}
+button,input{font:inherit}
+button{cursor:pointer}
+.shell{display:flex;min-height:100vh}
+.rail{width:68px;flex:0 0 68px;border-right:1px solid #1b2732;background:#090e14;display:flex;align-items:center;flex-direction:column;padding:22px 0;position:relative}
+.brand-mark{width:34px;height:34px;border:1px solid #71879a;display:grid;place-items:center;color:#e5edf5;font:500 18px 'DM Mono',monospace;transform:rotate(45deg);margin:6px 0 34px}
+.brand-mark span{transform:rotate(-45deg)}
+.rail-line{height:1px;width:24px;background:#2b3946}
+.rail-status{writing-mode:vertical-rl;transform:rotate(180deg);margin-top:32px;color:#8193a3;font:10px 'DM Mono',monospace;letter-spacing:2px;display:flex;align-items:center;gap:10px}
+.rail-status .status-dot{margin:0}
+.rail-bottom{position:absolute;bottom:24px;color:#506171;font:9px 'DM Mono',monospace;letter-spacing:1px;writing-mode:vertical-rl}
+.workspace{flex:1;min-width:0}
+.topbar{height:90px;border-bottom:1px solid #1b2732;display:flex;align-items:center;justify-content:space-between;padding:0 clamp(28px,5vw,76px)}
+.eyebrow{font:10px 'DM Mono',monospace;letter-spacing:1.8px;color:#8295a7}
+.wordmark{font-size:21px;font-weight:800;letter-spacing:5px;margin-top:5px;color:#f3f6fa}
+.wordmark-dot{color:#6ea8c8}
+.top-meta{display:flex;align-items:center;gap:25px;font:10px 'DM Mono',monospace;letter-spacing:1px;color:#8495a5}
+.system-state{display:flex;align-items:center;gap:9px;color:#b3c3ce}
+.status-dot{width:6px;height:6px;border-radius:50%;background:#69c59a;display:inline-block;box-shadow:0 0 10px #69c59a66}
+.content{max-width:1050px;margin:0 auto;padding:55px 42px 30px}
+.section-heading{display:flex;justify-content:space-between;align-items:center;margin-bottom:31px}
+h1{font-size:32px;letter-spacing:-1.2px;margin:10px 0 8px;font-weight:700}
+h1 span{color:#8295a7;font-weight:400}
+.section-heading p{color:#82909e;font-size:13px;margin:0}
+.seal{display:flex;align-items:center;gap:10px;border:1px solid #273c4c;padding:12px 14px;color:#8fb8cf;font:9px 'DM Mono',monospace;letter-spacing:1px;line-height:1.6}
+.status-strip{height:42px;border:1px solid #202e39;background:#0c131b;display:flex;align-items:center;gap:25px;padding:0 16px;color:#90a0ae;font:9px 'DM Mono',monospace;letter-spacing:1px}
+.status-strip>div{display:flex;align-items:center;gap:8px}
+.status-ready{margin-left:auto;color:#83c7a3}
+.operation-card{margin-top:18px;border:1px solid #293846;background:linear-gradient(145deg,rgba(18,29,40,.96),rgba(11,17,24,.98));padding:27px 29px 25px;box-shadow:0 18px 60px #0005}
+.card-head{display:flex;justify-content:space-between;align-items:center}
+h2{font-size:17px;margin:7px 0 0;font-weight:600}
+.index{font:10px 'DM Mono',monospace;color:#627687}
+.mode-switch{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:22px 0 27px}
+.mode{border:1px solid #2b3b49;background:#0d151e;color:#91a1ae;text-align:left;padding:14px 16px;display:flex;align-items:center;gap:13px;transition:.18s}
+.mode b{display:block;font-size:12px;color:#dce5ed;font-weight:600}
+.mode small{display:block;font-size:10px;color:#788b9b;margin-top:4px}
+.mode.active{border-color:#5b8ca8;background:linear-gradient(110deg,#183044,#101c28);box-shadow:inset 2px 0 #82b9d3}
+.mode.active>svg{color:#8dc1dc}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px 14px}
+.field label{display:block;color:#8fa2b2;font:9px 'DM Mono',monospace;letter-spacing:1.2px;margin-bottom:8px}
+.full{grid-column:1/-1}
+.path-control,.input-control{height:44px;border:1px solid #2a3947;background:#090f16;display:flex;align-items:center;padding:0 12px;gap:10px;color:#7991a2;min-width:0}
+.path-value,.path-placeholder{font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.path-value{color:#d3dce4}
+.path-placeholder{color:#586b7a}
+.browse{border:1px solid #405668;background:#142331;color:#a9c8d9;font:9px 'DM Mono',monospace;letter-spacing:1px;padding:8px 12px}
+.browse:hover{background:#1d3548;border-color:#6d9cb8}
+.input-control input{border:0;outline:0;background:transparent;color:#e9f0f5;width:100%;font-size:11px}
+.input-control input::placeholder{color:#536575}
+.notice{margin-top:22px;display:flex;align-items:flex-start;gap:10px;color:#a8a18a;background:#1b1a15;border:1px solid #3b3527;padding:12px 13px;font-size:10px;line-height:1.6}
+.notice svg{flex:0 0 auto;color:#c3a86e}
+.execute{height:48px;width:100%;margin-top:18px;background:#dce8ef;color:#0b141c;border:0;font:600 10px 'DM Mono',monospace;letter-spacing:1.6px;display:flex;justify-content:center;align-items:center;gap:11px;transition:.2s}
+.execute:hover:not(:disabled){background:#fff}
+.execute:disabled{opacity:.65;cursor:wait}
+.result{display:flex;align-items:center;gap:10px;margin-top:14px;padding:12px 14px;font-size:11px;line-height:1.5}
+.result.success{background:#10231c;border:1px solid #28563e;color:#a9ddbf}
+.result.error{background:#291719;border:1px solid #67343a;color:#efb4b4}
+.bottom-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px}
+.info-card{border:1px solid #202e39;background:#0c1219;padding:17px;display:flex;gap:13px;align-items:flex-start}
+.info-icon{width:32px;height:32px;display:grid;place-items:center;border:1px solid #2d4658;color:#86b4ce;flex:0 0 auto}
+.info-card b{font-size:11px;font-weight:600;color:#d8e1e8}
+.info-card p{font-size:10px;line-height:1.6;color:#7e8e9b;margin:5px 0 0}
+footer{display:flex;justify-content:space-between;margin-top:30px;color:#536575;font:9px 'DM Mono',monospace;letter-spacing:1px}
+footer i{font-style:normal;color:#769bb1;padding:0 4px}
+.spinner{width:15px;height:15px;border:2px solid #71818a;border-top-color:#101b24;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media(max-width:1050px){.content{padding:40px 26px 24px}.topbar{padding:0 28px}.status-strip{gap:13px;font-size:8px}}
