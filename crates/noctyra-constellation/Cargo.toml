@@ -12,3 +12,4 @@ serde.workspace = true
 postcard.workspace = true
 rand_core.workspace = true
 reed-solomon-erasure.workspace = true
+ed25519-dalek.workspace = true
