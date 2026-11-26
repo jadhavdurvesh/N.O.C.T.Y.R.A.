@@ -12,6 +12,7 @@ libfuzzer-sys = "0.4"
 noctyra-container = { path = "../crates/noctyra-container" }
 noctyra-image = { path = "../crates/noctyra-image" }
 noctyra-steganography = { path = "../crates/noctyra-steganography" }
+noctyra-constellation = { path = "../crates/noctyra-constellation" }
 
 [[bin]]
 name = "nmf2_manifest"
@@ -30,6 +31,13 @@ bench = false
 [[bin]]
 name = "carrier_payload"
 path = "fuzz_targets/carrier_payload.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "constellation_fragment"
+path = "fuzz_targets/constellation_fragment.rs"
 test = false
 doc = false
 bench = false
