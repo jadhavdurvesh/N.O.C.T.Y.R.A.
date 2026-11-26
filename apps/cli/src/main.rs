@@ -126,7 +126,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     if command == "carrier-extract" {
         if paths.len() != 2 { return Err("usage: noctyra carrier-extract <carrier-image> <output-archive.nct>".into()); }
-        let image_bytes = Zeroizing::new(read_bounded(Path::new(&paths[0]))?);
+        let image_bytes = Zeroizing::new(read_carrier_file(Path::new(&paths[0]))?);
         let carrier = noctyra_core::CarrierImage::load(&image_bytes)?;
         let payload = Zeroizing::new(noctyra_core::extract_carrier(&carrier)?);
         let output = Path::new(&paths[1]);
