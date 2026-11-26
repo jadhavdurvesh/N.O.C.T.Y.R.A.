@@ -410,8 +410,10 @@ pub fn cleanup_stale_staging(parent: impl AsRef<Path>) -> Result<usize, Containe
 }
 
 /// Authenticate an NCT v2 directory archive, validate it, then publish a complete
-/// extracted directory with a same-filesystem no-clobber rename. Plaintext remains
-/// in a private staging directory until every file has been written and synced.
+/// extracted directory with a same-filesystem rename. Plaintext remains in a
+/// private staging directory until every file has been written and synced.
+/// The portable rename has a destination-check race on platforms without a
+/// standard-library atomic no-replace directory operation.
 pub fn decrypt_directory_stream(
     password: &[u8],
     reader: impl Read,
