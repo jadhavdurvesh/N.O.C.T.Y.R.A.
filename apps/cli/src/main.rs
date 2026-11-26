@@ -47,7 +47,7 @@ fn read_bounded(path: &Path) -> Result<Vec<u8>, Box<dyn Error>> {
 fn read_carrier_file(path: &Path) -> Result<Vec<u8>, Box<dyn Error>> {
     check_regular_file(path)?;
     let metadata = fs::metadata(path)?;
-    let limit = noctyra_image::MAX_CARRIER_FILE_BYTES as u64;
+    let limit = 64 * 1024 * 1024u64;
     if metadata.len() > limit { return Err("carrier image exceeds the 64 MiB input limit".into()); }
     let mut bytes = Vec::with_capacity(metadata.len() as usize);
     File::open(path)?.take(limit + 1).read_to_end(&mut bytes)?;
