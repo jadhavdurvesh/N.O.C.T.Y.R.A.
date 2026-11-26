@@ -206,6 +206,36 @@ fn run() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
+    if command == "constellation-inspect" || command == "constellation-inspect-images" {
+        if paths.is_empty() || paths.len() > noctyra_core::MAX_FRAGMENT_COUNT {
+            return Err("usage: noctyra constellation-inspect <fragment.ncfr> [more-fragments...] (or constellation-inspect-images <carrier.png> [more-carriers...])".into());
+        }
+        let mut fragments = Vec::with_capacity(paths.len());
+        for path in &paths {
+            if command == "constellation-inspect-images" {
+                let image_bytes = Zeroizing::new(read_carrier_file(Path::new(path))?);
+                let carrier = noctyra_core::CarrierImage::load(&image_bytes)?;
+                fragments.push(Zeroizing::new(noctyra_core::extract_carrier(&carrier)?));
+            } else {
+                fragments.push(Zeroizing::new(read_limited(
+                    Path::new(path),
+                    (noctyra_core::MAX_FRAGMENT_DATA_BYTES + noctyra_core::FRAGMENT_HEADER_LEN) as u64,
+                    "CONSTELLATION fragment"
+                )?));
+            }
+        }
+        let refs: Vec<&[u8]> = fragments.iter().map(|fragment| fragment.as_slice()).collect();
+        let report = noctyra_core::inspect_fragments(refs)?;
+        println!("Transfer ID: {}", report.transfer_id.iter().map(|byte| format!("{byte:02x}")).collect::<String>());
+        println!("Fragments received: {} / {}", report.received_fragments, report.expected_fragments);
+        if report.missing_indices.is_empty() {
+            println!("All fragment indexes are present.");
+        } else {
+            println!("Missing fragment indexes (zero-based): {:?}", report.missing_indices);
+        }
+        return Ok(());
+    }
+
     if command == "constellation-reassemble" {
         if paths.len() < 2 || paths.len() > noctyra_core::MAX_FRAGMENT_COUNT + 1 {
             return Err("usage: noctyra constellation-reassemble <output-archive.nct> <fragment-1.ncfr> [fragment-2.ncfr ...]".into());
@@ -304,7 +334,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                 other => return Err(format!("unsupported NCT directory archive version: {other}").into()),
             }
         }
-        _ => return Err("usage: noctyra encrypt <file> <archive.nct> | decrypt <archive.nct> <file> | encrypt-dir <directory> <archive.nct> | decrypt-dir <archive.nct> <new-directory> | cleanup-staging <parent-directory> | carrier-embed <carrier-image> <encrypted-archive.nct> <output-image> | carrier-extract <carrier-image> <output-archive.nct> | constellation-split <archive.nct> <new-output-directory> [fragment-bytes] | constellation-reassemble <output-archive.nct> <fragment-1.ncfr> [fragment-2.ncfr ...] | constellation-encode <archive.nct> <new-output-directory> <cover-image1> [cover-image2 ...] | constellation-reassemble-images <output-archive.nct> <carrier-image1> [carrier-image2 ...]".into()),
+        _ => return Err("usage: noctyra encrypt <file> <archive.nct> | decrypt <archive.nct> <file> | encrypt-dir <directory> <archive.nct> | decrypt-dir <archive.nct> <new-directory> | cleanup-staging <parent-directory> | carrier-embed <carrier-image> <encrypted-archive.nct> <output-image> | carrier-extract <carrier-image> <output-archive.nct> | constellation-split <archive.nct> <new-output-directory> [fragment-bytes] | constellation-inspect <fragment-1.ncfr> [more-fragments...] | constellation-inspect-images <carrier-image1> [more-carriers...] | constellation-reassemble <output-archive.nct> <fragment-1.ncfr> [fragment-2.ncfr ...] | constellation-encode <archive.nct> <new-output-directory> <cover-image1> [cover-image2 ...] | constellation-reassemble-images <output-archive.nct> <carrier-image1> [carrier-image2 ...]".into()),
     }
 
     println!("Operation completed: {}", output.display());
