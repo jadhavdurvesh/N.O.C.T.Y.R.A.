@@ -345,6 +345,37 @@ mod tests {
     }
 
     #[test]
+    fn encrypted_trust_store_round_trip_and_revocation() {
+        let key = SigningKey::from_bytes(&[21u8; 32]).verifying_key().to_bytes();
+        let mut store = TrustStore::default();
+        let fingerprint = store.add(key, "test sender".to_owned()).unwrap();
+        let bytes = save_trust_store(b"registry password", &store).unwrap();
+        let loaded = open_trust_store(b"registry password", &bytes).unwrap();
+        assert_eq!(loaded.trusted_public_key(&fingerprint).unwrap(), key);
+        assert_eq!(open_trust_store(b"wrong password", &bytes).unwrap_err(), KeyVaultError::Authentication);
+        let mut revoked = loaded;
+        revoked.revoke(&fingerprint).unwrap();
+        assert_eq!(revoked.trusted_public_key(&fingerprint).unwrap_err(), KeyVaultError::RevokedTrustedKey);
+        let saved = save_trust_store(b"registry password", &revoked).unwrap();
+        let reloaded = open_trust_store(b"registry password", &saved).unwrap();
+        assert_eq!(reloaded.entries()[0].revoked, true);
+        assert_eq!(reloaded.trusted_public_key(&fingerprint).unwrap_err(), KeyVaultError::RevokedTrustedKey);
+    }
+
+    #[test]
+    fn rejects_duplicate_trust_entries_and_tampering() {
+        let key = SigningKey::from_bytes(&[22u8; 32]).verifying_key().to_bytes();
+        let mut store = TrustStore::default();
+        store.add(key, "sender".to_owned()).unwrap();
+        assert_eq!(store.add(key, "duplicate".to_owned()).unwrap_err(), KeyVaultError::DuplicateTrustedKey);
+        let bytes = save_trust_store(b"registry password", &store).unwrap();
+        let mut changed = bytes;
+        let last = changed.len() - 1;
+        changed[last] ^= 1;
+        assert_eq!(open_trust_store(b"registry password", &changed).unwrap_err(), KeyVaultError::Authentication);
+    }
+
+    #[test]
     fn rejects_malformed_and_unsupported_files() {
         assert_eq!(inspect_vault(b"short").unwrap_err(), KeyVaultError::Malformed);
         let mut vault = create_vault(b"password").unwrap();
