@@ -27,8 +27,10 @@
 - [x] Per-chunk AEAD with sequential nonce derivation
 - [x] Authenticated finalization record with total length and BLAKE3 digest
 - [x] CLI and desktop temporary-output publication for single-file operations
-- [ ] Streaming directory serialization and extraction
-- [ ] Bounded chunking and authenticated finalization for directory trees
+- [x] NMF2 streaming directory serialization over NCT v2
+- [x] Authenticated staging and manifest validation before extraction
+- [x] Bounded-memory file extraction and path/entry/resource limits
+- [ ] Source snapshot / concurrent mutation hardening
 - [ ] Cross-platform crash-safe output review
 
 ## M3 — Image laboratory
