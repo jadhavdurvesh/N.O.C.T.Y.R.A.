@@ -223,3 +223,79 @@ pub fn extract_directory(password: &[u8], archive: &[u8], destination: impl AsRe
     if extraction.is_err() { let _ = fs::remove_dir_all(destination); }
     extraction
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn directory_round_trip_preserves_nested_and_empty_directories() {
+        let source_parent = tempfile::tempdir().unwrap();
+        let source = source_parent.path().join("source");
+        fs::create_dir(&source).unwrap();
+        fs::create_dir_all(source.join("nested/deeper")).unwrap();
+        fs::create_dir(source.join("empty")).unwrap();
+        fs::write(source.join("hello.txt"), b"hello NOCTYRA").unwrap();
+        fs::write(source.join("nested/deeper/data.bin"), [0, 1, 2, 255]).unwrap();
+
+        let archive = seal_directory(b"directory passphrase", &source).unwrap();
+
+        let output_parent = tempfile::tempdir().unwrap();
+        let output = output_parent.path().join("restored");
+        extract_directory(b"directory passphrase", &archive, &output).unwrap();
+
+        assert_eq!(fs::read(output.join("hello.txt")).unwrap(), b"hello NOCTYRA");
+        assert_eq!(fs::read(output.join("nested/deeper/data.bin")).unwrap(), [0, 1, 2, 255]);
+        assert!(output.join("empty").is_dir());
+    }
+
+    #[test]
+    fn wrong_password_does_not_create_destination() {
+        let source_parent = tempfile::tempdir().unwrap();
+        let source = source_parent.path().join("source");
+        fs::create_dir(&source).unwrap();
+        fs::write(source.join("file"), b"secret").unwrap();
+        let archive = seal_directory(b"correct", &source).unwrap();
+
+        let output_parent = tempfile::tempdir().unwrap();
+        let output = output_parent.path().join("restored");
+        assert!(matches!(
+            extract_directory(b"wrong", &archive, &output),
+            Err(ContainerError::Crypto(_))
+        ));
+        assert!(!output.exists());
+    }
+
+    #[test]
+    fn refuses_existing_destination() {
+        let source_parent = tempfile::tempdir().unwrap();
+        let source = source_parent.path().join("source");
+        fs::create_dir(&source).unwrap();
+        let archive = seal_directory(b"password", &source).unwrap();
+
+        let output_parent = tempfile::tempdir().unwrap();
+        let output = output_parent.path().join("already-here");
+        fs::create_dir(&output).unwrap();
+        assert!(matches!(
+            extract_directory(b"password", &archive, &output),
+            Err(ContainerError::DestinationExists)
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_symbolic_links() {
+        use std::os::unix::fs::symlink;
+        let source_parent = tempfile::tempdir().unwrap();
+        let source = source_parent.path().join("source");
+        fs::create_dir(&source).unwrap();
+        fs::write(source_parent.path().join("outside"), b"outside").unwrap();
+        symlink(source_parent.path().join("outside"), source.join("link")).unwrap();
+        assert!(matches!(
+            seal_directory(b"password", &source),
+            Err(ContainerError::InvalidTree)
+        ));
+    }
+}
