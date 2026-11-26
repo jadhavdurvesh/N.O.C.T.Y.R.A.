@@ -22,9 +22,14 @@ jobs:
       matrix:
         os: [ubuntu-24.04, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: noctyra
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          path: noctyra
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -33,6 +38,8 @@ jobs:
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: noctyra -> Cargo.lock
 
       - name: Format Rust workspace
         run: cargo fmt --all
