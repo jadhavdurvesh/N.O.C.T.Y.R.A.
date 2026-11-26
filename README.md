@@ -21,6 +21,16 @@ NOCTYRA is a private cross-platform personal information-protection project. It 
 - [Project identity](docs/PROJECT_IDENTITY.md)
 - [Development roadmap](docs/ROADMAP.md)
 
+## First usable interface — CLI
+From the repository root, run:
+
+```powershell
+cargo run -p noctyra-cli -- encrypt .\\input.bin .\\archive.nct
+cargo run -p noctyra-cli -- decrypt .\\archive.nct .\\recovered.bin
+```
+
+The CLI prompts for passwords without echoing them and refuses to overwrite an existing output file. It currently reads one file into memory and is limited to 1 GiB. Do not use it for irreplaceable data until the implementation has been independently reviewed and tested.
+
 ## Current implementation
 The Rust workspace now contains an initial Argon2id + XChaCha20-Poly1305 encryption engine and an NCT v1 byte-envelope implementation with wrong-password, tamper, truncation, and trailing-data test cases. The format is still a draft and automated verification has not yet passed. File-tree archives, image carriers, CONSTELLATION reassembly, and the desktop interface remain under development.
 
