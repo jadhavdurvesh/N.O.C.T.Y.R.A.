@@ -40,11 +40,16 @@
 - [ ] Cross-platform crash-injection and power-loss testing
 
 ## M3 — Image laboratory
-- [ ] PNG/BMP input validation and metadata policy
-- [ ] Capacity estimation
-- [ ] Reversible experimental carrier codec
-- [ ] Round-trip and distortion measurements
-- [ ] Malformed-image fuzzing
+- [x] Bounded PNG/BMP loading with signature checks and dimension/allocation limits
+- [x] RGB-LSB carrier capacity estimation
+- [x] Versioned NCAR v1 payload frame with length and BLAKE3 corruption check
+- [x] Reversible RGB-LSB embed/extract codec; alpha channel remains unchanged
+- [x] PNG/BMP round-trip and payload corruption tests
+- [x] CLI carrier-embed and carrier-extract commands
+- [x] Fuzz targets for image decoding and embedded payload extraction
+- [ ] Distortion measurements and carrier quality report
+- [ ] Metadata policy and explicit metadata-preservation decisions
+- [ ] Independent image codec review and sustained fuzz campaigns
 
 ## M4 — CONSTELLATION
 - [ ] Carrier fragment envelope
