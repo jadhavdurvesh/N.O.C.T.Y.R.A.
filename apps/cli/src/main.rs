@@ -122,15 +122,16 @@ fn run() -> Result<(), Box<dyn Error>> {
         let fragment_size = if paths.len() == 3 {
             paths[2].to_string_lossy().parse::<usize>()?
         } else { noctyra_core::DEFAULT_FRAGMENT_DATA_BYTES };
-        let fragments = noctyra_core::fragment_archive(&archive, fragment_size)?;
+        let plan = noctyra_core::ConstellationFragmentPlan::new(&archive, fragment_size)?;
         let destination = Path::new(&paths[1]);
         if destination.exists() { return Err("output directory already exists; refusing to overwrite".into()); }
         let parent = destination.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
         let staging = tempfile::Builder::new().prefix(".noctyra-constellation-").tempdir_in(parent)?;
-        for (index, fragment) in fragments.iter().enumerate() {
+        for index in 0..plan.count() {
+            let fragment = Zeroizing::new(plan.encode(index)?);
             let path = staging.path().join(format!("fragment-{index:04}.ncfr"));
             let mut file = File::options().write(true).create_new(true).open(path)?;
-            file.write_all(fragment)?;
+            file.write_all(&fragment)?;
             file.sync_all()?;
         }
         let staging_path = staging.keep();
@@ -138,7 +139,7 @@ fn run() -> Result<(), Box<dyn Error>> {
             let _ = fs::remove_dir_all(&staging_path);
             return Err(error.into());
         }
-        println!("CONSTELLATION split complete: {} fragments written to {}", fragments.len(), destination.display());
+        println!("CONSTELLATION split complete: {} fragments written to {}", plan.count(), destination.display());
         return Ok(());
     }
 
@@ -160,16 +161,17 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
         let fragment_size = smallest_capacity.min(noctyra_core::MAX_FRAGMENT_DATA_BYTES);
         if fragment_size == 0 { return Err("one or more cover images cannot hold a CONSTELLATION fragment header and payload".into()); }
-        let fragments = noctyra_core::fragment_archive(&archive, fragment_size)?;
-        if fragments.len() > cover_paths.len() {
-            return Err(format!("not enough cover images: {} fragments required, {} supplied", fragments.len(), cover_paths.len()).into());
+        let plan = noctyra_core::ConstellationFragmentPlan::new(&archive, fragment_size)?;
+        if plan.count() > cover_paths.len() {
+            return Err(format!("not enough cover images: {} fragments required, {} supplied", plan.count(), cover_paths.len()).into());
         }
         let parent = destination.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
         let staging = tempfile::Builder::new().prefix(".noctyra-constellation-").tempdir_in(parent)?;
-        for (index, fragment) in fragments.iter().enumerate() {
+        for index in 0..plan.count() {
+            let fragment = Zeroizing::new(plan.encode(index)?);
             let image_bytes = Zeroizing::new(read_carrier_file(Path::new(&cover_paths[index]))?);
             let mut carrier = noctyra_core::CarrierImage::load(&image_bytes)?;
-            noctyra_core::embed_carrier(&mut carrier, fragment)?;
+            noctyra_core::embed_carrier(&mut carrier, &fragment)?;
             let format = carrier.format();
             let encoded = Zeroizing::new(carrier.encode(format)?);
             let output = staging.path().join(format!("carrier-{:04}.{}", index + 1, format.extension()));
@@ -182,7 +184,7 @@ fn run() -> Result<(), Box<dyn Error>> {
             let _ = fs::remove_dir_all(&staging_path);
             return Err(error.into());
         }
-        println!("CONSTELLATION encoded {} image carriers in {}", fragments.len(), destination.display());
+        println!("CONSTELLATION encoded {} image carriers in {}", plan.count(), destination.display());
         return Ok(());
     }
 
