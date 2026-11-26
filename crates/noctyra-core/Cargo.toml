@@ -13,3 +13,5 @@ noctyra-container = { path = "../noctyra-container" }
 
 noctyra-image = { path = "../noctyra-image" }
 noctyra-steganography = { path = "../noctyra-steganography" }
+
+noctyra-constellation = { path = "../noctyra-constellation" }
