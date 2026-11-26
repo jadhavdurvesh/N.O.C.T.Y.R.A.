@@ -559,6 +559,45 @@ fn run() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
+    if command == "constellation-plan" {
+        if paths.len() < 4 {
+            return Err("usage: noctyra constellation-plan <archive-bytes> <shard-bytes> <parity-shards> <cover-image1> [more-covers...]".into());
+        }
+        let archive_len = paths[0].to_string_lossy().parse::<usize>()?;
+        let shard_size = paths[1].to_string_lossy().parse::<usize>()?;
+        let parity = paths[2].to_string_lossy().parse::<usize>()?;
+        if archive_len == 0 || archive_len > MAX_INPUT_BYTES as usize
+            || shard_size == 0 || shard_size > noctyra_core::MAX_FRAGMENT_DATA_BYTES || parity == 0 {
+            return Err("archive size, shard size or parity count is outside supported limits".into());
+        }
+        let data_shards = archive_len.div_ceil(shard_size);
+        let total_shards = data_shards.checked_add(parity).ok_or("shard count overflow")?;
+        if total_shards > noctyra_core::MAX_RECOVERY_SHARDS {
+            return Err("requested transfer exceeds the 255-shard protocol limit".into());
+        }
+        println!("Archive bytes: {archive_len}");
+        println!("Shard size: {shard_size} bytes");
+        println!("Data shards: {data_shards}; parity shards: {parity}; total carriers required: {total_shards}");
+        let mut fit_count = 0usize;
+        for path in &paths[3..] {
+            let image_bytes = Zeroizing::new(read_carrier_file(Path::new(path))?);
+            let carrier = noctyra_core::CarrierImage::load(&image_bytes)?;
+            let capacity = noctyra_core::estimate_carrier_capacity(&carrier).payload_bytes
+                .saturating_sub(noctyra_core::RECOVERY_HEADER_LEN);
+            let fits = capacity >= shard_size;
+            if fits { fit_count += 1; }
+            println!("{} | usable shard bytes: {} | {}", Path::new(path).display(), capacity,
+                if fits { "FIT" } else { "TOO SMALL" });
+        }
+        println!("Suitable covers: {fit_count}/{}; required: {total_shards}", paths.len() - 3);
+        if fit_count >= total_shards {
+            println!("STATUS: READY — the supplied covers can hold the requested recovery set.");
+        } else {
+            println!("STATUS: INSUFFICIENT — add {} suitable cover image(s) or reduce shard size.", total_shards.saturating_sub(fit_count));
+        }
+        return Ok(());
+    }
+
     if command == "constellation-diagnose" {
         if paths.len() < 5 {
             return Err("usage: noctyra constellation-diagnose <manifest.ncmf> <registry.ncts> <trusted-fingerprint> <carrier1.png> [more-carriers...]".into());
