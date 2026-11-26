@@ -514,6 +514,53 @@ mod tests {
         assert!(!output.exists());
     }
 
+    fn manifest_entry(kind: u8, path: &str, size: u64) -> Vec<u8> {
+        let mut bytes = vec![kind];
+        bytes.extend_from_slice(&(path.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&size.to_le_bytes());
+        bytes.extend_from_slice(path.as_bytes());
+        bytes
+    }
+
+    #[test]
+    fn manifest_accepts_empty_tree_and_rejects_traversal() {
+        let mut empty = b"NMF2".to_vec();
+        empty.extend_from_slice(&0u32.to_le_bytes());
+        assert!(validate_directory_manifest(&mut Cursor::new(empty)).is_ok());
+
+        let mut traversal = b"NMF2".to_vec();
+        traversal.extend_from_slice(&1u32.to_le_bytes());
+        traversal.extend_from_slice(&manifest_entry(1, "../escape", 0));
+        assert!(validate_directory_manifest(&mut Cursor::new(traversal)).is_err());
+    }
+
+    #[test]
+    fn manifest_rejects_case_collisions_and_file_parent_conflicts() {
+        let mut collisions = b"NMF2".to_vec();
+        collisions.extend_from_slice(&2u32.to_le_bytes());
+        collisions.extend_from_slice(&manifest_entry(1, "Data.bin", 0));
+        collisions.extend_from_slice(&manifest_entry(1, "data.BIN", 0));
+        assert!(validate_directory_manifest(&mut Cursor::new(collisions)).is_err());
+
+        let mut conflict = b"NMF2".to_vec();
+        conflict.extend_from_slice(&2u32.to_le_bytes());
+        conflict.extend_from_slice(&manifest_entry(1, "parent", 0));
+        conflict.extend_from_slice(&manifest_entry(0, "parent/child", 0));
+        assert!(validate_directory_manifest(&mut Cursor::new(conflict)).is_err());
+    }
+
+    #[test]
+    fn manifest_rejects_excessive_entry_count_and_trailing_bytes() {
+        let mut excessive = b"NMF2".to_vec();
+        excessive.extend_from_slice(&u32::MAX.to_le_bytes());
+        assert!(matches!(validate_directory_manifest(&mut Cursor::new(excessive)), Err(ContainerError::TooManyEntries)));
+
+        let mut trailing = b"NMF2".to_vec();
+        trailing.extend_from_slice(&0u32.to_le_bytes());
+        trailing.push(0);
+        assert!(validate_directory_manifest(&mut Cursor::new(trailing)).is_err());
+    }
+
     #[test]
     fn directory_stream_rejects_truncation_and_trailing_bytes() {
         let source_parent = tempfile::tempdir().unwrap();
