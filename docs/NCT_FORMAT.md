@@ -1,38 +1,52 @@
 # NCT Container Format — Draft v1
 
-Status: design draft; not frozen for interoperability. Extension: `.nct`.
+Status: first implementation committed; format remains draft pending review and test vectors. Extension: `.nct`.
 
-## Goals
-- Versioned, bounded, authenticated encrypted archive.
-- Multiple files through an encrypted manifest.
-- Streaming/chunked data for large files.
-- Separate password/recovery key wrapping from payload encryption.
+## Binary layout
+All integer fields are little-endian.
 
-## Proposed conceptual envelope
-1. Magic identifier.
-2. Format version and flags.
-3. KDF identifier and bounded KDF parameters.
-4. Random salt.
-5. AEAD algorithm identifier.
-6. Wrapped DEK metadata and nonce.
-7. Payload layout and chunking parameters.
-8. Encrypted manifest and payload chunks.
-9. Authenticated finalization record.
+| Offset | Length | Field |
+|---:|---:|---|
+| 0 | 4 | Magic: ASCII `NCTY` |
+| 4 | 2 | Format version: `1` |
+| 6 | 16 | Argon2id salt |
+| 22 | 24 | XChaCha20-Poly1305 nonce |
+| 46 | 8 | Ciphertext length, including 16-byte AEAD tag |
+| 54 | variable | Ciphertext and authentication tag |
 
-## Cryptographic direction
-- Password KDF: Argon2id with parameters calibrated to target platforms and bounded on read.
-- Payload AEAD: XChaCha20-Poly1305.
-- Random DEK generated independently from the password.
-- KEK derived from the password wraps the DEK.
-- Optional recovery secret wraps the same DEK using a separate, domain-separated wrapping key.
+The parser requires the input length to equal 54 plus the declared ciphertext length. It rejects unknown versions, truncation, trailing bytes, ciphertext shorter than the tag, and ciphertext above the current 1 GiB implementation bound.
 
-These choices are design targets, not implemented or audited features.
+## Authenticated data
+The AEAD associated data is the 14-byte sequence:
 
-## Chunking requirements
-Each encrypted chunk must bind archive identity, format version, chunk index, and relevant layout metadata as associated data. Nonce allocation must guarantee uniqueness under a DEK. The authenticated finalization record must detect truncation and missing chunks.
+`NCTY || version_u16_le || ciphertext_length_u64_le`
 
-## Parser requirements
-Reject unknown critical flags, unsupported versions, unreasonable KDF parameters, overflowing lengths, duplicate chunk indexes, incomplete finalization, and malformed/truncated structures according to the finalized specification.
+The salt and nonce are inputs to the KDF and AEAD respectively. They are not secret. Changes to authenticated fields cause authentication failure.
 
-## Compatibility
-A format version must never change meaning after release. An incompatible change requires a new version. A formal byte-level specification and test vectors are required before v1 is frozen.
+## Cryptographic profile
+- KDF: Argon2id, version 1.3.
+- Memory: 65,536 KiB.
+- Iterations: 3.
+- Parallelism: 1 lane.
+- Derived key: 32 bytes.
+- AEAD: XChaCha20-Poly1305.
+- Salt: 16 bytes from OS-backed randomness.
+- Nonce: 24 bytes from OS-backed randomness.
+
+These parameters are compiled into the crypto crate rather than encoded as negotiable header fields. A future format revision must encode a profile identifier or bounded KDF parameters and reject unsafe values before running the KDF.
+
+## API
+- `seal(password, plaintext) -> Result<Vec<u8>, ContainerError>`
+- `open(password, archive) -> Result<Vec<u8>, ContainerError>`
+
+The API handles byte payloads. File-tree manifests, safe path handling, streaming encryption, chunking, DEK envelope wrapping, and recovery-key wrapping are not yet implemented.
+
+## Security requirements
+- Authenticate before returning plaintext.
+- Reject malformed lengths before allocating the declared payload.
+- Do not extract files until full archive authentication succeeds.
+- Do not overwrite existing destination files.
+- Add filesystem path and symlink protections when file archives are implemented.
+- Fuzz the parser and maintain byte-level test vectors before freezing v1.
+
+A format version must never change meaning after release. Incompatible changes require a new version. This draft is not yet frozen for external interoperability.
