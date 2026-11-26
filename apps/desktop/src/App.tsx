@@ -158,7 +158,7 @@ function App() {
                 <button className="execute secondary-action" disabled={busy} onClick={async()=>{const p=await chooseSave("Save extracted NCT archive","extracted.nct",["nct"]);if(p){setOutputPath(p);await runReveal(p);}}}><ArrowDownToLine size={17}/> EXTRACT NCT ARCHIVE</button>
               </div>
             </div>
-            <div className="notice"><ShieldAlert size={16}/><span>Steganography does not encrypt data or guarantee that hidden data is undetectable. Use lossless PNG/BMP files; resizing, filters and social-media recompression can destroy embedded data. Always encrypt before concealing.</span></div>
+            <div className="notice"><ShieldAlert size={16}/><span>Steganography does not encrypt data or guarantee that hidden data is undetectable. This single-image codec supports up to 16 MiB per payload. Use lossless PNG/BMP files; resizing, filters and social-media recompression can destroy embedded data. Always encrypt before concealing.</span></div>
           </section>}
 
           {section === "transfer" && <section className="operation-card">
