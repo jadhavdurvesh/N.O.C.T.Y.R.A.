@@ -198,3 +198,40 @@ PNG is the primary lossless carrier. BMP may be supported as a secondary format.
 
 ## Security and privacy
 The encrypted NCT payload remains the confidentiality boundary. Image carriers may be statistically analyzed; no undetectability guarantee is made. Do not use carrier encoding to bypass security controls or monitoring. Never include passwords or plaintext secrets in a transport manifest.
+
+
+## M5 authenticated checkpoints and independent recovery credentials
+
+### Resumable local checkpoints
+
+The CLI provides `recovery-checkpoint-init`, `recovery-checkpoint-mark`, and `recovery-checkpoint-status`. The checkpoint is bound to the exact signed NCMF bytes and transfer identifier. Its bitmap is authenticated with a separate random 256-bit local key using keyed BLAKE3. The checkpoint key is stored separately with restrictive Unix file permissions; protect it as a secret and do not include it in a carrier package or commit it to source control.
+
+A shard is marked only after the CLI verifies the NCMF signature using a locally trusted, non-revoked sender key, extracts the image payload, and verifies that shard's metadata and digest against the signed manifest. The checkpoint stores no carrier data. On resume, every carrier must be re-read and re-verified; checkpoint bits are progress hints, not proof that files still exist or remain valid. Replacing the manifest, changing the trust registry, losing the checkpoint key, or restoring an old checkpoint requires operator review. The checkpoint has no anti-rollback protection.
+
+```powershell
+# Initialize once for a trusted signed manifest
+cargo run -p noctyra-cli -- recovery-checkpoint-init .\\manifest.ncmf .\\trusted-senders.ncts <fingerprint> .\\transfer.ncrp .\\transfer-checkpoint.key
+
+# After receiving a carrier, verify and record its shard index
+cargo run -p noctyra-cli -- recovery-checkpoint-mark .\\manifest.ncmf .\\trusted-senders.ncts <fingerprint> .\\transfer.ncrp .\\transfer-checkpoint.key .\\carrier-0001.png
+
+# Inspect the recorded progress before continuing
+cargo run -p noctyra-cli -- recovery-checkpoint-status .\\manifest.ncmf .\\trusted-senders.ncts <fingerprint> .\\transfer.ncrp .\\transfer-checkpoint.key
+```
+
+### Independent recovery-key credential
+
+`recovery-keygen` creates a random 256-bit secret in a new local key file. `encrypt-with-recovery-key` and `decrypt-with-recovery-key` use those 32 bytes as the password input to the existing NCT authenticated-encryption pipeline. This is a separate credential mode from sender signing identities and trust registries. Anyone who obtains the key file can decrypt archives encrypted with it; keep offline backups and never send the key in the same package as the archive.
+
+This first version is a standalone recovery-key encryption mode. It does not retrofit a second key slot into an archive already encrypted with a human password, does not wrap an existing data-encryption key, and does not provide two independent ways to unlock the same archive. A future NCT envelope revision should introduce a random data-encryption key with separately authenticated password and recovery-key wraps, plus explicit format-version migration and key-rotation tests.
+
+```powershell
+cargo run -p noctyra-cli -- recovery-keygen .\\offline-recovery.key
+cargo run -p noctyra-cli -- encrypt-with-recovery-key .\\important-file.pdf .\\important-file.nct .\\offline-recovery.key
+cargo run -p noctyra-cli -- decrypt-with-recovery-key .\\important-file.nct .\\restored-file.pdf .\\offline-recovery.key
+```
+
+### Streaming reconstruction status
+
+The current Reed-Solomon implementation reconstructs a complete codeword in memory. The CLI keeps its output unpublished until the recovered encrypted archive passes final digest and NCT header checks, and plaintext decryption remains a separate authenticated operation. True bounded-memory shard reconstruction is not yet implemented: it requires a disk-backed or streaming erasure-code design, authenticated temporary shard storage, bounded scratch-space accounting, and crash cleanup tests. Do not describe the current reconstruction as streaming.
+
