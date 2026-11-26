@@ -52,11 +52,17 @@
 - [ ] Independent image codec review and sustained fuzz campaigns
 
 ## M4 — CONSTELLATION
-- [ ] Carrier fragment envelope
-- [ ] Authenticated transfer manifest
-- [ ] Fragment validation and reassembly
-- [ ] Missing/duplicate/corrupt part reporting
-- [ ] Optional erasure-code design and test vectors
+- [x] NCFR v1 bounded fragment envelope with random transfer identifier
+- [x] Fragment and complete-archive BLAKE3 corruption checks
+- [x] Fragment splitting with configurable 4 MiB default / 8 MiB maximum
+- [x] Out-of-order reassembly with final archive digest and NCT header checks
+- [x] Missing, duplicate, mixed-transfer and corrupt-fragment reporting
+- [x] CLI raw fragment split and reassembly
+- [x] CLI multi-image PNG/BMP encode and image reassembly
+- [x] Fragment parser fuzz target and inspection fuzz target
+- [ ] Authenticated transfer manifest / sender authentication
+- [ ] Optional Reed-Solomon erasure-code design and test vectors
+- [ ] End-to-end multi-image integration tests and carrier capacity benchmarks
 
 ## M5 — Recovery
 - [ ] Recovery-key workflow
