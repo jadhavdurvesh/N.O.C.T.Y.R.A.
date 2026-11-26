@@ -60,13 +60,18 @@
 - [x] CLI raw fragment split and reassembly
 - [x] CLI multi-image PNG/BMP encode and image reassembly
 - [x] Fragment parser fuzz target and inspection fuzz target
-- [ ] Authenticated transfer manifest / sender authentication
+- [x] NCMF v1 canonical Ed25519-signed recovery manifest
+- [x] Trusted-public-key pinning and signature verification
+- [x] Signed metadata binding to recovery shards
+- [x] CLI key generation, manifest creation and authenticated recovery
+- [x] Manifest parser fuzz target
 - [x] NCRS v1 systematic Reed-Solomon parity shard framing
 - [x] Recovery from any k of k+r valid shards
 - [x] Duplicate, mixed-transfer, malformed and corrupt shard rejection
 - [x] Recovery CLI for raw shards and multi-image carrier sets
 - [x] Recovery shard parser fuzz target
-- [ ] Authenticated transfer manifest / sender authentication
+- [ ] OS keychain / hardware-backed signing-key storage
+- [ ] Key rotation, revocation and signer identity provisioning policy
 - [ ] End-to-end recovery image integration tests and carrier capacity benchmarks
 - [ ] End-to-end multi-image integration tests and carrier capacity benchmarks
 
