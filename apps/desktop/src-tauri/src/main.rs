@@ -1,5 +1,5 @@
 use std::{
-    fs::{self, File, OpenOptions},
+    fs::{self, File},
     io::{Read, Seek, SeekFrom, Write},
     path::Path,
 };
@@ -17,17 +17,6 @@ fn read_bounded(path: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("Cannot read input: {e}"))?;
     if bytes.len() as u64 > MAX_INPUT_BYTES { return Err("Input grew beyond the configured limit while being read.".into()); }
     Ok(bytes)
-}
-
-fn write_new(path: &str, bytes: &[u8]) -> Result<(), String> {
-    let mut file = OpenOptions::new().write(true).create_new(true).open(Path::new(path))
-        .map_err(|e| format!("Cannot create output (existing files are never overwritten): {e}"))?;
-    if let Err(error) = file.write_all(bytes).and_then(|_| file.sync_all()) {
-        drop(file);
-        let _ = fs::remove_file(path);
-        return Err(format!("Cannot safely finish output: {error}"));
-    }
-    Ok(())
 }
 
 fn temporary_output(path: &str) -> Result<tempfile::NamedTempFile, String> {
