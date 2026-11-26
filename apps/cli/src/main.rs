@@ -34,14 +34,19 @@ fn check_regular_file(path: &Path) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn read_bounded(path: &Path) -> Result<Vec<u8>, Box<dyn Error>> {
+fn read_limited(path: &Path, limit: u64, label: &str) -> Result<Vec<u8>, Box<dyn Error>> {
     check_regular_file(path)?;
     let metadata = fs::metadata(path)?;
-    if metadata.len() > MAX_INPUT_BYTES { return Err("input exceeds the current 1 GiB limit".into()); }
-    let mut bytes = Vec::with_capacity(metadata.len() as usize);
-    File::open(path)?.take(MAX_INPUT_BYTES + 1).read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > MAX_INPUT_BYTES { return Err("input grew beyond the configured 1 GiB limit while being read".into()); }
+    if metadata.len() > limit { return Err(format!("{label} exceeds the configured size limit").into()); }
+    let capacity = usize::try_from(metadata.len())?;
+    let mut bytes = Vec::with_capacity(capacity);
+    File::open(path)?.take(limit + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > limit { return Err(format!("{label} grew beyond the configured size limit while being read").into()); }
     Ok(bytes)
+}
+
+fn read_bounded(path: &Path) -> Result<Vec<u8>, Box<dyn Error>> {
+    read_limited(path, MAX_INPUT_BYTES, "input")
 }
 
 fn read_carrier_file(path: &Path) -> Result<Vec<u8>, Box<dyn Error>> {
@@ -112,7 +117,12 @@ fn run() -> Result<(), Box<dyn Error>> {
     if command == "carrier-embed" {
         if paths.len() != 3 { return Err("usage: noctyra carrier-embed <carrier-image> <encrypted-archive.nct> <output-image>".into()); }
         let image_bytes = Zeroizing::new(read_carrier_file(Path::new(&paths[0]))?);
-        let archive_bytes = Zeroizing::new(read_bounded(Path::new(&paths[1]))?);
+        let archive_bytes = Zeroizing::new(read_limited(Path::new(&paths[1]), 16 * 1024 * 1024, "encrypted archive payload")?);
+        if archive_bytes.len() < 6 || &archive_bytes[..4] != b"NCTY" {
+            return Err("carrier payload must be a valid NOCTYRA NCT archive".into());
+        }
+        let archive_version = u16::from_le_bytes([archive_bytes[4], archive_bytes[5]]);
+        if !matches!(archive_version, 1 | 2) { return Err("unsupported NCT archive version for carrier embedding".into()); }
         let mut carrier = noctyra_core::CarrierImage::load(&image_bytes)?;
         noctyra_core::embed_carrier(&mut carrier, &archive_bytes)?;
         let encoded = Zeroizing::new(carrier.encode(carrier.format())?);
