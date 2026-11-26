@@ -104,7 +104,7 @@ BLAKE3 checksums and Reed-Solomon parity provide corruption detection and erasur
 
 ## NCMF signed recovery manifest v1
 
-NCMF v1 is a fixed-length, canonical binary manifest signed with Ed25519. It binds the transfer ID, original archive length, data/parity shard counts, shard size, and archive digest to the signer's public key. The signature input is domain-separated with the ASCII context `NOCTYRA-CONSTELLATION-MANIFEST-V1` followed by a NUL byte and the exact 70-byte manifest body.
+NCMF v1 is a canonical binary manifest with a length determined by the shard count, signed with Ed25519. It binds the transfer ID, original archive length, data/parity shard counts, shard size, archive digest, and each individual shard payload digest to the signer's public key. The signature input is domain-separated with the ASCII context `NOCTYRA-CONSTELLATION-MANIFEST-V1` followed by a NUL byte and the exact manifest body (70-byte fixed header followed by 32 bytes per shard).
 
 | Offset | Length | Field |
 |---:|---:|---|
@@ -116,10 +116,11 @@ NCMF v1 is a fixed-length, canonical binary manifest signed with Ed25519. It bin
 | 32 | 2 | Parity shard count |
 | 34 | 4 | Shard payload size |
 | 38 | 32 | Original archive BLAKE3 digest |
-| 70 | 32 | Ed25519 signer public key |
-| 102 | 64 | Ed25519 signature |
+| 70 | 32 × (k+r) | BLAKE3 digests of each shard payload, ordered by shard index |
+| 70 + 32×(k+r) | 32 | Ed25519 signer public key |
+| 102 + 32×(k+r) | 64 | Ed25519 signature |
 
-The signature proves possession of the private key corresponding to the embedded public key. It does **not** establish a real-world identity by itself. The recipient must obtain and pin the trusted public key through an independent trusted channel; a public key supplied alongside an untrusted manifest is not sufficient.
+The signature proves possession of the private key corresponding to the embedded public key and binds the exact expected digest of every data and parity shard. It does **not** establish a real-world identity by itself. The recipient must obtain and pin the trusted public key through an independent trusted channel; a public key supplied alongside an untrusted manifest is not sufficient.
 
 The CLI stores raw 32-byte private and public key files. On Unix, private-key files are created with mode 0600. The CLI refuses to overwrite existing key files. Keep private keys offline, encrypted at rest, and backed up securely; do not commit them to Git or send them with the carriers. The current CLI key-file workflow is a minimal local-file implementation, not an OS keychain or hardware-backed keystore.
 
