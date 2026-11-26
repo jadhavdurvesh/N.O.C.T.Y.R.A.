@@ -96,7 +96,7 @@
 - [x] Add 64 KiB stripe-based Reed-Solomon reconstruction to a temporary seekable output without allocating a second full codeword/archive
 - [ ] Stream carrier reads into authenticated scratch storage instead of loading all carrier frames into memory
 - [ ] Add scratch-space quotas, truncation and crash cleanup guarantees
-- [ ] Add a dedicated carrier capacity planning report and batch diagnostics output
+- [x] Add per-carrier diagnostics and a carrier-capacity/recovery-set planning report
 - [ ] Add crash-injection, disk-full and interrupted-write recovery tests
 - [ ] Add cross-platform filesystem publication and permission tests
 - [ ] Run full workspace CI and resolve all failures
