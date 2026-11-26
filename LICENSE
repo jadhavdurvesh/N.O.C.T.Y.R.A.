@@ -1,5 +1,70 @@
-UNLICENSED
+NOCTYRA RESTRICTED PROPRIETARY SOFTWARE LICENSE
+Version 1.0 — 26 November 2026
 
-This repository is private and proprietary to its owner. No license is granted to
-copy, modify, distribute, sublicense, or use this software except as expressly
-authorized in writing by the owner.
+Copyright (c) 2026 Durvesh Mukund Jadhav. All rights reserved.
+
+1. OWNERSHIP
+The NOCTYRA name, source code, object code, documentation, specifications,
+designs, protocols, visual assets, and related materials in this repository
+(the "Software") are proprietary materials of the copyright holder, except
+for third-party components identified separately with their own licenses.
+
+2. NO GENERAL LICENSE
+No permission to use, copy, modify, merge, publish, distribute, sublicense,
+sell, rent, host, provide as a service, or create derivative works from the
+Software is granted to the public by placing it in this repository.
+Access to the repository does not, by itself, grant a software license.
+
+3. LIMITED AUTHORIZED ACCESS
+The copyright holder may grant a separate, written, non-transferable,
+revocable authorization to named individuals for specified development,
+review, or evaluation activities. Any such authorization must identify its
+scope, duration, permitted systems, confidentiality requirements, and
+termination conditions. No recipient may expand or sublicense that authority.
+
+4. RESTRICTIONS
+To the maximum extent permitted by applicable law, an unauthorized recipient
+must not:
+- reproduce or redistribute the Software or substantial portions of it;
+- publish source code, binaries, private specifications, or non-public
+  security findings;
+- remove copyright, attribution, or proprietary notices;
+- use the Software to provide a hosted or commercial service;
+- misrepresent the Software as certified, classified, government-approved,
+  military-approved, or independently audited;
+- use credentials or access obtained for one purpose for another purpose.
+
+Nothing in this section overrides mandatory rights or exceptions that cannot
+lawfully be restricted in the applicable jurisdiction.
+
+5. THIRD-PARTY COMPONENTS
+Third-party dependencies and assets remain governed by their respective
+licenses. This document does not relicense third-party materials. Their
+licenses must be recorded in the dependency inventory and distribution notices.
+
+6. NO SECURITY OR FITNESS WARRANTY
+The Software is provided "AS IS", to the extent permitted by law, without
+warranty of any kind. No claim is made that the Software is suitable for
+military, intelligence, national-security, regulated, or safety-critical use.
+It must not be relied upon for such use without the required legal approvals,
+independent technical assessment, operational controls, and authorization.
+
+7. TERMINATION
+Any separately granted authorization terminates when its written terms expire
+or are breached. Upon termination, the recipient must stop the authorized use
+and follow the written return/deletion instructions, subject to legally
+required retention obligations.
+
+8. GOVERNING LAW
+No governing law or venue is selected by this notice. A signed written
+agreement should specify the governing law and dispute process after review
+by qualified counsel.
+
+9. CONTACT AND PERMISSIONS
+Requests for written permission must be made to the copyright holder through
+a separately verified contact channel. No permission is granted merely by
+opening an issue, pull request, discussion, or email.
+
+This license notice is a project starting point, not a substitute for
+jurisdiction-specific legal advice. Have it reviewed by qualified counsel
+before accepting contributors, distributing binaries, or enforcing rights.
