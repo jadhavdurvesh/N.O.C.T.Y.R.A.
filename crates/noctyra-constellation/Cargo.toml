@@ -1,0 +1,12 @@
+[package]
+name = "noctyra-constellation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+thiserror.workspace = true
+blake3.workspace = true
+serde.workspace = true
+postcard.workspace = true
