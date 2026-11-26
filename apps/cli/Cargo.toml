@@ -9,3 +9,4 @@ publish = false
 noctyra-core = { path = "../../crates/noctyra-core" }
 rpassword = "7"
 zeroize.workspace = true
+tempfile = "3"
