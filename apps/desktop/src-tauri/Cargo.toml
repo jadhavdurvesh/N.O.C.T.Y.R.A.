@@ -1,0 +1,15 @@
+[package]
+name = "noctyra-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+noctyra-core = { path = "../../../crates/noctyra-core" }
+zeroize.workspace = true
