@@ -70,27 +70,27 @@ function App() {
       return true;
     }, () => isEncryption(mode) ? "Encrypted NCT archive created successfully." : "Archive authenticated and recovered successfully.");
   }
-  async function runConceal() {
-    if (!archivePath || !carrierPath || !outputPath) { reportError("Choose an encrypted NCT archive, a PNG/BMP carrier and an output image."); return; }
-    await execute(() => invoke<number>("conceal_archive", { archivePath, carrierPath, outputPath }), n => `Encrypted archive embedded successfully (${n.toLocaleString()} bytes).`);
+  async function runConceal(destination: string) {
+    if (!archivePath || !carrierPath || !destination) { reportError("Choose an encrypted NCT archive, a PNG/BMP carrier and an output image."); return; }
+    await execute(() => invoke<number>("conceal_archive", { archivePath, carrierPath, outputPath: destination }), n => `Encrypted archive embedded successfully (${n.toLocaleString()} bytes).`);
   }
-  async function runReveal() {
-    if (!carrierPath || !outputPath) { reportError("Choose a carrier image and an output NCT archive path."); return; }
-    await execute(() => invoke<number>("reveal_archive", { carrierPath, outputPath }), n => `Embedded NCT archive extracted and integrity-checked (${n.toLocaleString()} bytes).`);
+  async function runReveal(destination: string) {
+    if (!carrierPath || !destination) { reportError("Choose a carrier image and an output NCT archive path."); return; }
+    await execute(() => invoke<number>("reveal_archive", { carrierPath, outputPath: destination }), n => `Embedded NCT archive extracted and integrity-checked (${n.toLocaleString()} bytes).`);
   }
-  async function runSplit() {
-    if (!archivePath || !outputPath) { reportError("Choose an encrypted NCT archive and a new transfer folder destination."); return; }
+  async function runSplit(destination: string) {
+    if (!archivePath || !destination) { reportError("Choose an encrypted NCT archive and a new transfer folder destination."); return; }
     const size = Number(partSize);
     if (!Number.isSafeInteger(size) || size < 1024 || size > 8 * 1024 * 1024) { reportError("Part size must be between 1 KiB and 8 MiB."); return; }
-    await execute(() => invoke<string[]>("constellation_split", { archivePath, outputDirectory: outputPath, fragmentBytes: size }), paths => `Transfer prepared: ${paths.length} authenticated integrity-checked parts created.`);
+    await execute(() => invoke<string[]>("constellation_split", { archivePath, outputDirectory: destination, fragmentBytes: size }), paths => `Transfer prepared: ${paths.length} authenticated integrity-checked parts created.`);
   }
   async function pickParts() {
     const result = await open({ title: "Select all parts from one NOCTYRA transfer", multiple: true, filters: [{ name: "NOCTYRA transfer parts", extensions: ["ncfr"] }] });
     if (Array.isArray(result)) { setTransferParts(result); clearStatus(); }
   }
-  async function runJoin() {
-    if (!transferParts.length || !outputPath) { reportError("Select transfer parts and an output NCT archive path."); return; }
-    await execute(() => invoke<number>("constellation_join", { fragmentPaths: transferParts, outputPath }), n => `Transfer reassembled and archive digest verified (${n.toLocaleString()} bytes).`);
+  async function runJoin(destination: string) {
+    if (!transferParts.length || !destination) { reportError("Select transfer parts and an output NCT archive path."); return; }
+    await execute(() => invoke<number>("constellation_join", { fragmentPaths: transferParts, outputPath: destination }), n => `Transfer reassembled and archive digest verified (${n.toLocaleString()} bytes).`);
   }
   async function createRecoveryKey() {
     const path = await chooseSave("Save offline recovery key", "NOCTYRA-recovery.key", ["key"]);
@@ -151,11 +151,11 @@ function App() {
               <div className="workflow-panel"><div className="workflow-icon"><ScanLine size={20}/></div><h3>Conceal archive</h3><p>Choose an existing NCT archive and a PNG/BMP cover image. NOCTYRA checks capacity before embedding.</p>
                 <div className="field"><label>ENCRYPTED NCT ARCHIVE</label><div className="path-control"><FileLock2 size={16}/><span className={archivePath ? "path-value" : "path-placeholder"}>{archivePath || "No archive selected"}</span><button className="browse" onClick={async()=>{const p=await chooseFile("Select encrypted NCT archive",["nct"]);if(p){setArchivePath(p);clearStatus();}}}>SELECT</button></div></div>
                 <div className="field"><label>CARRIER IMAGE</label><div className="path-control"><Image size={16}/><span className={carrierPath ? "path-value" : "path-placeholder"}>{carrierPath || "No PNG/BMP selected"}</span><button className="browse" onClick={async()=>{const p=await chooseFile("Select PNG or BMP carrier",["png","bmp"]);if(p){setCarrierPath(p);clearStatus();}}}>SELECT</button></div></div>
-                <button className="execute" disabled={busy} onClick={async()=>{const p=await chooseSave("Save concealed image","NOCTYRA-concealed.png",["png"]);if(p){setOutputPath(p);await runConceal();}}}><Image size={17}/> CONCEAL INTO IMAGE</button>
+                <button className="execute" disabled={busy} onClick={async()=>{const p=await chooseSave("Save concealed image","NOCTYRA-concealed.png",["png"]);if(p){setOutputPath(p);await runConceal(p);}}}><Image size={17}/> CONCEAL INTO IMAGE</button>
               </div>
               <div className="workflow-panel"><div className="workflow-icon"><CopyCheck size={20}/></div><h3>Extract archive</h3><p>Extracts the embedded payload and checks its integrity. You still need the archive passphrase to decrypt it.</p>
                 <div className="field"><label>CARRIER IMAGE</label><div className="path-control"><Image size={16}/><span className={carrierPath ? "path-value" : "path-placeholder"}>{carrierPath || "No PNG/BMP selected"}</span><button className="browse" onClick={async()=>{const p=await chooseFile("Select concealed PNG or BMP",["png","bmp"]);if(p){setCarrierPath(p);clearStatus();}}}>SELECT</button></div></div>
-                <button className="execute secondary-action" disabled={busy} onClick={async()=>{const p=await chooseSave("Save extracted NCT archive","extracted.nct",["nct"]);if(p){setOutputPath(p);await runReveal();}}}><ArrowDownToLine size={17}/> EXTRACT NCT ARCHIVE</button>
+                <button className="execute secondary-action" disabled={busy} onClick={async()=>{const p=await chooseSave("Save extracted NCT archive","extracted.nct",["nct"]);if(p){setOutputPath(p);await runReveal(p);}}}><ArrowDownToLine size={17}/> EXTRACT NCT ARCHIVE</button>
               </div>
             </div>
             <div className="notice"><ShieldAlert size={16}/><span>Steganography does not encrypt data or guarantee that hidden data is undetectable. Use lossless PNG/BMP files; resizing, filters and social-media recompression can destroy embedded data. Always encrypt before concealing.</span></div>
@@ -167,11 +167,11 @@ function App() {
               <div className="workflow-panel"><div className="workflow-icon"><Layers3 size={20}/></div><h3>Prepare a transfer</h3><p>Split an encrypted NCT archive into independently integrity-checked parts for separate delivery.</p>
                 <div className="field"><label>ENCRYPTED NCT ARCHIVE</label><div className="path-control"><FileLock2 size={16}/><span className={archivePath ? "path-value" : "path-placeholder"}>{archivePath || "No archive selected"}</span><button className="browse" onClick={async()=>{const p=await chooseFile("Select encrypted NCT archive",["nct"]);if(p){setArchivePath(p);clearStatus();}}}>SELECT</button></div></div>
                 <div className="field"><label>PART SIZE</label><div className="input-control"><Layers3 size={16}/><select value={partSize} onChange={e=>setPartSize(e.target.value)}><option value="1048576">1 MiB</option><option value="2097152">2 MiB</option><option value="4194304">4 MiB</option><option value="8388608">8 MiB</option></select></div></div>
-                <button className="execute" disabled={busy} onClick={async()=>{const p=await chooseSave("Choose new transfer folder path","NOCTYRA-Transfer");if(p){setOutputPath(p);await runSplit();}}}><Network size={17}/> PREPARE TRANSFER PARTS</button>
+                <button className="execute" disabled={busy} onClick={async()=>{const p=await chooseSave("Choose new transfer folder path","NOCTYRA-Transfer");if(p){setOutputPath(p);await runSplit(p);}}}><Network size={17}/> PREPARE TRANSFER PARTS</button>
               </div>
               <div className="workflow-panel"><div className="workflow-icon"><RefreshCw size={20}/></div><h3>Reassemble a transfer</h3><p>Select all received parts from the same transfer. Missing, duplicated, mixed or corrupted parts are rejected.</p>
                 <div className="field"><label>RECEIVED PARTS / {transferParts.length} SELECTED</label><div className="path-control"><Layers3 size={16}/><span className={transferParts.length ? "path-value" : "path-placeholder"}>{transferParts.length ? transferParts.map(p=>p.split(/[\\/]/).pop()).join(", ") : "No transfer parts selected"}</span><button className="browse" onClick={pickParts}>SELECT</button></div></div>
-                <button className="execute secondary-action" disabled={busy} onClick={async()=>{const p=await chooseSave("Save reassembled NCT archive","reassembled.nct",["nct"]);if(p){setOutputPath(p);await runJoin();}}}><ArrowDownToLine size={17}/> REASSEMBLE ARCHIVE</button>
+                <button className="execute secondary-action" disabled={busy} onClick={async()=>{const p=await chooseSave("Save reassembled NCT archive","reassembled.nct",["nct"]);if(p){setOutputPath(p);await runJoin(p);}}}><ArrowDownToLine size={17}/> REASSEMBLE ARCHIVE</button>
               </div>
             </div>
             <div className="notice"><TriangleAlert size={16}/><span>CONSTELLATION fragmentation is not erasure-coded recovery. Every fragment is required in this first desktop workflow. Send the decryption passphrase through a separate trusted channel.</span></div>
