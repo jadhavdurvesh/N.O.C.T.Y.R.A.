@@ -42,7 +42,10 @@ fn run() -> Result<(), Box<dyn Error>> {
     }
 
     let mut bytes = Vec::with_capacity(metadata.len() as usize);
-    File::open(input)?.read_to_end(&mut bytes)?;
+    File::open(input)?.take(MAX_INPUT_BYTES + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_INPUT_BYTES {
+        return Err("input grew beyond the configured 1 GiB limit while being read".into());
+    }
 
     let result = match command.as_ref() {
         "encrypt" => {
