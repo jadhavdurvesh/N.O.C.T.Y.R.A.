@@ -8,6 +8,7 @@ members = [
     "crates/noctyra-steganography",
     "crates/noctyra-compression",
     "crates/noctyra-constellation",
+    "crates/noctyra-keystore",
     "crates/noctyra-recovery",
     "crates/noctyra-validation",
     "apps/cli",
