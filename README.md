@@ -21,7 +21,9 @@ NOCTYRA is a private cross-platform personal information-protection project. It 
 - [Project identity](docs/PROJECT_IDENTITY.md)
 - [Development roadmap](docs/ROADMAP.md)
 
-## Status
+## Current implementation
+The Rust workspace now contains an initial Argon2id + XChaCha20-Poly1305 encryption engine and an NCT v1 byte-envelope implementation with wrong-password, tamper, truncation, and trailing-data test cases. The format is still a draft and automated verification has not yet passed. File-tree archives, image carriers, CONSTELLATION reassembly, and the desktop interface remain under development.
+
 Early engineering project; not an audited security product. No government, military, or national-security certification is claimed. Do not use as the sole protection for high-value sensitive data.
 
 Never commit passwords, recovery keys, private carrier images, real encrypted personal archives, or other secrets.
