@@ -1,70 +1,108 @@
 NOCTYRA RESTRICTED PROPRIETARY SOFTWARE LICENSE
-Version 1.0 — 26 November 2026
+MASTER TERMS — VERSION 1.0
+Effective date: 26 November 2026
 
-Copyright (c) 2026 Durvesh Mukund Jadhav. All rights reserved.
+NOTICE
+This is a private-project proprietary license draft. It is not a government classification, military designation, export authorization, security certification, or representation of approval for regulated or national-security use. Obtain qualified legal review before relying on it as an enforceable agreement.
 
-1. OWNERSHIP
-The NOCTYRA name, source code, object code, documentation, specifications,
-designs, protocols, visual assets, and related materials in this repository
-(the "Software") are proprietary materials of the copyright holder, except
-for third-party components identified separately with their own licenses.
+COPYRIGHT
+Copyright © 2026 Durvesh Mukund Jadhav. All rights reserved, subject to third-party rights.
 
-2. NO GENERAL LICENSE
-No permission to use, copy, modify, merge, publish, distribute, sublicense,
-sell, rent, host, provide as a service, or create derivative works from the
-Software is granted to the public by placing it in this repository.
-Access to the repository does not, by itself, grant a software license.
+1. DEFINITIONS
+"Owner" means the rights holder identified above or a lawful successor.
+"NOCTYRA" means the project, including its source, object code, protocols, formats, architecture, documentation, designs, test suites, build scripts, and project assets, to the extent owned or controlled by the Owner.
+"Materials" means all NOCTYRA materials made available by the Owner.
+"Authorized Recipient" means a person or entity expressly authorized in a written instrument signed or otherwise approved by the Owner.
+"Confidential Information" means non-public Materials and non-public information disclosed for the project, including credentials, cryptographic design, keys, vulnerability reports, unreleased capabilities, and operational procedures. It excludes information demonstrably public without breach, lawfully known without confidentiality restriction before disclosure, independently developed without use of protected information, or lawfully received from a third party without a duty of confidence.
 
-3. LIMITED AUTHORIZED ACCESS
-The copyright holder may grant a separate, written, non-transferable,
-revocable authorization to named individuals for specified development,
-review, or evaluation activities. Any such authorization must identify its
-scope, duration, permitted systems, confidentiality requirements, and
-termination conditions. No recipient may expand or sublicense that authority.
+2. NO PUBLIC LICENSE
+2.1 The repository is private. Repository visibility does not grant intellectual-property rights.
+2.2 No license is granted to the public by publication of a URL, invitation, issue, pull request, commit, binary, screenshot, or document.
+2.3 Except for non-waivable statutory rights, no person may access, execute, reproduce, modify, adapt, create derivative works from, distribute, publish, sublicense, sell, rent, lease, host, or otherwise exploit Materials without prior express written authorization.
+2.4 Repository access alone is not a software license.
 
-4. RESTRICTIONS
-To the maximum extent permitted by applicable law, an unauthorized recipient
-must not:
-- reproduce or redistribute the Software or substantial portions of it;
-- publish source code, binaries, private specifications, or non-public
-  security findings;
-- remove copyright, attribution, or proprietary notices;
-- use the Software to provide a hosted or commercial service;
-- misrepresent the Software as certified, classified, government-approved,
-  military-approved, or independently audited;
-- use credentials or access obtained for one purpose for another purpose.
+3. LIMITED AUTHORIZATION
+3.1 The Owner may authorize a named recipient in writing, specifying purpose, materials, permitted activities, duration, and conditions.
+3.2 Unless expressly stated otherwise, authorization is limited, non-exclusive, non-transferable, non-sublicensable, and revocable subject to applicable law and the written terms.
+3.3 Recipients must not share credentials, invite additional users, mirror the repository, or move Materials to unapproved services.
+3.4 No implied license arises from silence, review, contribution, payment, or access.
 
-Nothing in this section overrides mandatory rights or exceptions that cannot
-lawfully be restricted in the applicable jurisdiction.
+4. PERMITTED ACTIVITIES
+Recipients may perform only activities expressly listed in their authorization. Permission to compile, execute, test, or modify a development copy does not authorize publication, deployment, commercialization, distribution, or third-party access.
 
-5. THIRD-PARTY COMPONENTS
-Third-party dependencies and assets remain governed by their respective
-licenses. This document does not relicense third-party materials. Their
-licenses must be recorded in the dependency inventory and distribution notices.
+5. RESTRICTIONS
+Except where mandatory law grants a non-waivable right or the Owner grants specific written permission, recipients must not:
+(a) publish, mirror, sell, sublicense, transfer, or redistribute Materials;
+(b) disclose source, specifications, credentials, keys, vulnerability details, or non-public project information;
+(c) remove copyright, confidentiality, attribution, or proprietary notices;
+(d) use Materials to operate a hosted service or commercial offering;
+(e) use Materials outside the approved purpose or environment;
+(f) misrepresent NOCTYRA as certified, classified, government-approved, military-approved, audited, or endorsed;
+(g) introduce malicious code, unauthorized telemetry, backdoors, or credential collection;
+(h) bypass access controls or use another person's credentials;
+(i) commit secrets, personal documents, recovery keys, or private user data to source control;
+(j) use project access for unrelated purposes.
+Nothing restricts lawful security research, protected disclosures, interoperability rights, or other non-waivable legal rights.
 
-6. NO SECURITY OR FITNESS WARRANTY
-The Software is provided "AS IS", to the extent permitted by law, without
-warranty of any kind. No claim is made that the Software is suitable for
-military, intelligence, national-security, regulated, or safety-critical use.
-It must not be relied upon for such use without the required legal approvals,
-independent technical assessment, operational controls, and authorization.
+6. CONFIDENTIALITY
+6.1 Recipients shall use Confidential Information only for the authorized purpose and protect it with at least reasonable care.
+6.2 Disclosure is permitted only to individuals expressly approved by the Owner and bound by written confidentiality obligations.
+6.3 Recipients shall promptly report suspected or actual unauthorized access, disclosure, loss, compromise, or misuse.
+6.4 Confidential Information must not be placed in public trackers, public paste services, public AI services, personal cloud drives, or unapproved systems.
+6.5 For legally compelled disclosure, recipients shall, where lawful, give advance notice and disclose only what is required.
+6.6 Confidentiality obligations continue for five years after disclosure; trade secrets remain protected for as long as they qualify under applicable law.
 
-7. TERMINATION
-Any separately granted authorization terminates when its written terms expire
-or are breached. Upon termination, the recipient must stop the authorized use
-and follow the written return/deletion instructions, subject to legally
-required retention obligations.
+7. INTELLECTUAL PROPERTY
+7.1 The Owner retains all rights in Materials owned by the Owner. No ownership transfers through access.
+7.2 Contributors retain rights in pre-existing materials and contributions unless a separate written assignment or license validly states otherwise.
+7.3 Contributions do not automatically transfer copyright. A separate contributor agreement must establish assignment or license rights before proprietary distribution.
+7.4 Contributors must identify third-party code, assets, data, and applicable license obligations.
+7.5 No person may submit materials they do not have the legal right to contribute.
 
-8. GOVERNING LAW
-No governing law or venue is selected by this notice. A signed written
-agreement should specify the governing law and dispute process after review
-by qualified counsel.
+8. THIRD-PARTY COMPONENTS
+8.1 Third-party components remain governed by their respective licenses.
+8.2 This document does not relicense third-party materials or override open-source obligations.
+8.3 The Owner should maintain a dependency and license inventory and review compatibility before distribution.
 
-9. CONTACT AND PERMISSIONS
-Requests for written permission must be made to the copyright holder through
-a separately verified contact channel. No permission is granted merely by
-opening an issue, pull request, discussion, or email.
+9. CREDENTIALS AND SECURITY MATERIALS
+9.1 Passwords, private keys, recovery secrets, signing keys, tokens, and credentials are sensitive.
+9.2 Secrets must never be committed to source control or shared between individuals.
+9.3 Store secrets only in approved secret-management facilities and rotate credentials when compromise is suspected.
+9.4 Vulnerabilities must be reported privately through a verified contact route.
+9.5 Testing is permitted only against systems expressly authorized in writing.
 
-This license notice is a project starting point, not a substitute for
-jurisdiction-specific legal advice. Have it reviewed by qualified counsel
-before accepting contributors, distributing binaries, or enforcing rights.
+10. SECURITY CLAIMS
+10.1 NOCTYRA is a private software project. No claim of military grade, government approval, national-security certification, formal classification, or regulated deployment suitability is made.
+10.2 Strong algorithms, a private repository, and internal labels do not alone establish system security.
+10.3 No claim of audit, certification, or suitability is made unless supported by a specific written assessment.
+
+11. EXPORT AND LEGAL COMPLIANCE
+Each party is responsible for laws applicable to access, use, transfer, import, export, sanctions, and disclosure. This license grants no export or government-use authorization.
+
+12. TERM AND TERMINATION
+12.1 Authorization begins and ends as stated in its written instrument.
+12.2 The Owner may suspend access when reasonably necessary to protect the project or investigate compromise, subject to law.
+12.3 Material breach may result in termination subject to mandatory law and agreed cure provisions.
+12.4 On termination, recipients must stop use, return or delete Materials as instructed, revoke credentials, and confirm completion where reasonably requested.
+12.5 Legally required retention remains subject to confidentiality.
+12.6 Ownership, confidentiality, third-party rights, disclaimers, liability, and provisions intended by nature to survive shall survive termination.
+
+13. DISCLAIMER
+To the maximum extent permitted by law, Materials are provided "AS IS" and "AS AVAILABLE", without express or implied warranties, including merchantability, fitness, title, non-infringement, accuracy, availability, or security.
+
+14. LIABILITY
+To the maximum extent permitted by law, the Owner is not liable for indirect, incidental, special, exemplary, punitive, or consequential loss, including loss of data, profits, business, or goodwill. Nothing excludes liability that cannot lawfully be excluded.
+
+15. INDEMNITY
+Where lawful, a recipient is responsible for claims and losses caused by their unauthorized use, unlawful distribution, or material breach. This does not apply to non-excludable wrongdoing by the Owner or where prohibited by law.
+
+16. GOVERNING LAW AND DISPUTES
+This notice does not select governing law, court, or arbitration seat. Those terms must be completed in a separate signed agreement after qualified legal review.
+
+17. GENERAL
+Amendments and additional permissions must be in writing. Invalid provisions shall be limited or severed only as necessary. Failure to enforce is not waiver. Recipients may not assign authorization without written consent. Nothing creates employment, partnership, agency, or joint venture. Mandatory statutory rights remain unaffected.
+
+18. PERMISSIONS
+No permission is granted by this notice alone. Any authorization must identify the recipient, materials, purpose, permitted activities, and duration.
+
+END OF LICENSE
