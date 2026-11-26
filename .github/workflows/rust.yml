@@ -24,12 +24,26 @@ jobs:
     runs-on: ${{ matrix.os }}
     defaults:
       run:
-        working-directory: noctyra
+        working-directory: ${{ runner.os == 'Windows' && 'D:\\work\\noctyra' || 'noctyra' }}
     steps:
       - name: Checkout
+        if: runner.os != 'Windows'
         uses: actions/checkout@v4
         with:
           path: noctyra
+
+      # The repository name ends in a dot, which Windows forbids in a
+      # directory component. Clone into a neutral path outside GITHUB_WORKSPACE.
+      - name: Checkout on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: D:\\
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force -Path D:\\work | Out-Null
+          $auth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("x-access-token:$env:GITHUB_TOKEN"))
+          git -c "http.extraheader=AUTHORIZATION: basic $auth" clone --depth 1 "https://github.com/$env:GITHUB_REPOSITORY.git" D:\\work\\noctyra
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -37,6 +51,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Cache cargo
+        if: runner.os != 'Windows'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: noctyra -> Cargo.lock
