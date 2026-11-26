@@ -18,6 +18,9 @@ pub const MAX_CIPHERTEXT_LEN: usize = 1024 * 1024 * 1024;
 mod tree;
 pub use tree::{extract_directory, seal_directory};
 
+mod stream;
+pub use stream::{decrypt_stream, encrypt_stream, STREAM_CHUNK_SIZE};
+
 #[derive(Debug, thiserror::Error)]
 pub enum ContainerError {
     #[error("archive is truncated or malformed")]
