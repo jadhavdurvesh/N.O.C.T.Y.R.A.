@@ -10,10 +10,26 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 noctyra-container = { path = "../crates/noctyra-container" }
+noctyra-image = { path = "../crates/noctyra-image" }
+noctyra-steganography = { path = "../crates/noctyra-steganography" }
 
 [[bin]]
 name = "nmf2_manifest"
 path = "fuzz_targets/nmf2_manifest.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "carrier_image"
+path = "fuzz_targets/carrier_image.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "carrier_payload"
+path = "fuzz_targets/carrier_payload.rs"
 test = false
 doc = false
 bench = false
