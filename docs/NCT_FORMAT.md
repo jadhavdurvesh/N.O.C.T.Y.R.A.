@@ -131,6 +131,9 @@ For file entries, exactly `file_length` raw bytes follow the path immediately. E
 - Paths are relative, UTF-8, traversal-free, and reject platform-reserved device names and invalid separators.
 - Duplicate case-folded paths and children under a file entry are rejected.
 - Extraction authenticates the complete NCT stream to an anonymous temporary file before creating the destination. Manifest validation precedes destination creation; failed extraction removes the partial destination.
-- The source directory is enumerated before streaming. File type and size are checked again when each file is opened; the format does not provide a filesystem snapshot against concurrent writers.
+- The source directory is enumerated before streaming. File type, size and modification time are checked when each file is opened and again after it is read. This detects many concurrent changes but is not a filesystem snapshot and cannot defeat every same-size/same-timestamp race.
+- Extraction occurs in a private sibling staging directory. File contents and directories are synced where supported, then the payload directory is renamed into place on the same filesystem. The staging marker remains outside the published payload so an interrupted operation can leave a recognizable recovery directory.
+- `cleanup_stale_staging(parent)` removes only NOCTYRA-marked staging directories older than 24 hours. Run it only when no NOCTYRA extraction is active in that parent. It does not inspect or delete ordinary user directories.
+- Directory publication uses a preflight destination check followed by a same-filesystem rename. The portable standard-library implementation does not provide a universal atomic no-replace directory rename, so a hostile concurrent process racing to create an empty destination remains a platform-specific hardening item.
 
 The NMF2 payload is protected by the NCT v2 chunk authentication and finalization record. It is not a standalone format and must not be processed without the enclosing NCT v2 authenticated stream.
