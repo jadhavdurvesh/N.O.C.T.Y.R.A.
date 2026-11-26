@@ -177,7 +177,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         let supplied: [u8; 32] = supplied_bytes.as_slice().try_into().map_err(|_| "successor public key must be exactly 32 bytes")?;
         if supplied != successor { return Err("successor public key does not match the signed rotation certificate".into()); }
         let fingerprint = blake3::hash(&successor).to_hex().to_string();
-        if fingerprint != paths[5].to_string_lossy() { return Err(format!("successor fingerprint confirmation mismatch; computed fingerprint: {fingerprint}").into()); }
+        if fingerprint != paths[5].to_string_lossy().as_ref() { return Err(format!("successor fingerprint confirmation mismatch; computed fingerprint: {fingerprint}").into()); }
         let label = paths[4].to_string_lossy().into_owned();
         store.add(successor, label)?;
         store.revoke(&old_fingerprint)?;
@@ -354,7 +354,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     if command == "constellation-manifest-verify-recovery" {
         if paths.len() < 4 { return Err("usage: noctyra constellation-manifest-verify-recovery <output-archive.nct> <manifest.ncmf> <trusted-public-key-file> <shard1.ncrs> [more-shards...]".into()); }
-        let manifest_bytes = Zeroizing::new(read_limited(Path::new(&paths[1]), 1024, "signed manifest")?);
+        let manifest_bytes = Zeroizing::new(read_limited(Path::new(&paths[1]), noctyra_core::MAX_MANIFEST_LEN as u64, "signed manifest")?);
         let public_bytes = Zeroizing::new(read_limited(Path::new(&paths[2]), 32, "trusted Ed25519 public key")?);
         let trusted_key: [u8; 32] = public_bytes.as_slice().try_into().map_err(|_| "trusted Ed25519 public key must be exactly 32 raw bytes")?;
         let manifest = noctyra_core::verify_signed_manifest(&manifest_bytes, &trusted_key)?;
