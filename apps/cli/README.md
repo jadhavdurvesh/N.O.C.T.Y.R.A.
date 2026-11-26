@@ -78,6 +78,28 @@ cargo run -p noctyra-cli -- constellation-reassemble-images .\\recovered.nct .\\
 
 NCFR v1 uses a random transfer ID, bounded fragment indexes/counts, per-fragment BLAKE3 checksums and a complete archive digest. These hashes detect corruption but do not authenticate the sender. NCT AEAD remains the confidentiality and authenticity boundary. Current limits: 1 GiB archive, 256 fragments, 4 MiB default fragment data, 8 MiB maximum fragment data.
 
+## CONSTELLATION resilient recovery (NCRS)
+
+Create a raw recovery set with a 4 MiB shard size and two parity shards:
+
+```powershell
+cargo run -p noctyra-cli -- constellation-recovery-split .\\archive.nct .\\recovery-shards 4194304 2
+```
+
+Create a recovery set embedded in PNG/BMP cover images. Supply enough cover images for all data plus parity shards, and ensure each can hold the shard plus its frame header:
+
+```powershell
+cargo run -p noctyra-cli -- constellation-recovery-encode .\\archive.nct .\\recovery-carriers 4194304 2 .\\cover1.png .\\cover2.png .\\cover3.png .\\cover4.png .\\cover5.png .\\cover6.png .\\cover7.png .\\cover8.png .\\cover9.png .\\cover10.png
+```
+
+Recover from any sufficient set of distinct shards; order does not matter:
+
+```powershell
+cargo run -p noctyra-cli -- constellation-recovery-images .\\recovered.nct .\\recovery-carriers\\recovery-0001.png .\\recovery-carriers\\recovery-0003.png .\\recovery-carriers\\recovery-0004.png .\\recovery-carriers\\recovery-0005.png .\\recovery-carriers\\recovery-0006.png .\\recovery-carriers\\recovery-0007.png .\\recovery-carriers\\recovery-0008.png .\\recovery-carriers\\recovery-0009.png
+```
+
+NCRS v1 uses systematic Reed-Solomon parity shards. With k data shards and r parity shards, any k distinct shards can recover the archive, so up to r shards may be missing or damaged. Recovery verifies shard checksums, codeword consistency, the final archive digest and the NCT header. These checks do not authenticate a sender; NCT AEAD remains the authenticity boundary.
+
 ## Current limitations
 - Legacy NMF1 directory archives remain buffered; new directory archives use NMF2 streaming.
 - No image carriers or CONSTELLATION packet splitting yet.
