@@ -1,6 +1,6 @@
 # CONSTELLATION — Multi-Carrier Transport Protocol
 
-Status: protocol design draft.
+Status: experimental v1 fragment and reassembly implementation. Not frozen for interoperability.
 
 CONSTELLATION transports an already encrypted NCT payload across a set of independently handled carrier files. It is a transport and recovery format, not an encryption algorithm and not a promise of steganographic undetectability.
 
@@ -18,28 +18,42 @@ CONSTELLATION transports an already encrypted NCT payload across a set of indepe
 - Optionally add erasure-code redundancy in a later version.
 - Reassemble the exact encrypted NCT byte stream before decryption.
 
-## Conceptual carrier envelope
-Each carrier holds a versioned record with:
-- Protocol magic and version.
-- Transfer identifier.
-- Manifest identifier.
-- Fragment index and total data-fragment count.
-- Fragment role (data or recovery).
-- Bounded fragment length.
-- Fragment bytes.
-- Integrity value bound to transfer and fragment metadata.
+## Implemented NCFR v1 fragment frame
 
-The transfer manifest records the archive identifier, total payload length, fragment sizing, expected fragment set, integrity commitments, and optional recovery parameters. Sensitive manifest fields should be minimized; the manifest itself must be authenticated by a key derived from or associated with the encrypted archive, not trusted merely because the image contains it.
+Each fragment is an opaque byte record embedded as the NCAR payload:
 
-## Reassembly rules
-1. Treat every carrier and manifest as untrusted input.
+| Offset | Length | Field |
+|---:|---:|---|
+| 0 | 4 | Magic: ASCII `NCFR` |
+| 4 | 2 | Protocol version (little-endian, currently 1) |
+| 6 | 16 | Random transfer identifier |
+| 22 | 8 | Complete encrypted archive length |
+| 30 | 4 | Zero-based fragment index |
+| 34 | 4 | Total fragment count |
+| 38 | 4 | Fragment data length |
+| 42 | 32 | BLAKE3 digest of complete archive |
+| 74 | 32 | BLAKE3 digest of this fragment's data |
+| 106 | variable | Fragment data |
+
+Default fragment data is 4 MiB; maximum is 8 MiB. A transfer is limited to 256 fragments and 1 GiB of archive data. Framing uses a random 128-bit transfer identifier. A deterministic-ID function exists only for test vectors.
+
+The v1 digests are unkeyed corruption checks, not sender authentication. The transfer identifier is not a secret. The complete NCT archive must still pass its authenticated decryption before plaintext is trusted. A separately authenticated transfer manifest and sender identity are future protocol work.
+
+The future transfer manifest may record the archive identifier, total payload length, fragment sizing, expected fragment set, integrity commitments, and optional recovery parameters. NCFR v1 currently repeats bounded transfer metadata in each fragment and has no separate authenticated manifest. Do not treat unkeyed hashes as proof of origin.
+
+## Implemented reassembly rules
+1. Treat every carrier and fragment as untrusted input.
 2. Validate magic, version, lengths, and resource bounds before allocation.
 3. Reject fragments with invalid authentication/integrity.
 4. Detect duplicate indexes and conflicting transfer identifiers.
 5. Report missing fragments explicitly.
 6. Reconstruct only when all required data fragments are available or a formally specified erasure-recovery threshold is met.
-7. Verify the complete reconstructed encrypted archive before attempting decryption.
-8. Never write recovered plaintext before successful cryptographic authentication.
+7. Verify the complete reconstructed archive length and BLAKE3 digest.
+8. Check the NCT magic and supported version.
+9. Authenticate/decrypt the reconstructed NCT archive before trusting plaintext.
+10. Never write recovered plaintext before successful cryptographic authentication.
+
+The CLI currently supports splitting into NCFR files, embedding fragments into multiple supplied PNG/BMP cover images, and reassembling from out-of-order NCFR files or carrier images. The v1 implementation rejects duplicate indexes, mixed transfer IDs, malformed lengths, corrupt fragment digests, missing parts, and a final archive digest mismatch. It does not yet implement parity/recovery shards.
 
 ## Optional redundancy
 A later protocol revision may use a well-reviewed Reed-Solomon erasure-coding implementation. Code parameters, shard sizing, maximum recovery count, and interoperability test vectors must be specified. Redundancy improves resilience to missing parts; it does not make data undetectable or provide confidentiality.
