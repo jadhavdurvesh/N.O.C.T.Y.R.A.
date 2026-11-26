@@ -42,4 +42,11 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "constellation_reassembly"
+path = "fuzz_targets/constellation_reassembly.rs"
+test = false
+doc = false
+bench = false
+
 [workspace]
