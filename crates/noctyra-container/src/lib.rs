@@ -33,6 +33,12 @@ pub enum ContainerError {
     Crypto(#[from] CryptoError),
     #[error("filesystem operation failed: {0}")]
     Io(String),
+    #[error("compression or decompression failed: {0}")]
+    Compression(String),
+    #[error("archive integrity check failed")]
+    Integrity,
+    #[error("operating-system random generator failed")]
+    Random,
     #[error("directory archive contains an unsafe or invalid path or filesystem object")]
     InvalidTree,
     #[error("directory archive contains too many entries")]
