@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Activity, ArrowDownToLine, ArrowRight, ArrowUpRight, Check, CheckCircle2,
   ChevronRight, CircleHelp, CloudOff, FileArchive, FileImage, FileKey2,
@@ -40,6 +41,32 @@ function App() {
   const [recoveryKeyPath, setRecoveryKeyPath] = useState("");
   const [recoveryInputPath, setRecoveryInputPath] = useState("");
   const [recoveryOutputPath, setRecoveryOutputPath] = useState("");
+  const [dragging, setDragging] = useState(false);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    getCurrentWindow().onDragDropEvent(event => {
+      if (event.payload.type === "enter" || event.payload.type === "over") setDragging(true);
+      if (event.payload.type === "leave") setDragging(false);
+      if (event.payload.type === "drop") {
+        setDragging(false);
+        const paths = event.payload.paths;
+        if (!paths.length) return;
+        const first = paths[0];
+        const extension = first.split(".").pop()?.toLowerCase() || "";
+        if (section === "vault") setInputPath(first);
+        else if (section === "images") {
+          if (extension === "nct") setArchivePath(first);
+          else if (["png", "bmp"].includes(extension)) setCarrierPath(first);
+        } else if (section === "transfer") {
+          if (paths.every(path => path.toLowerCase().endsWith(".ncfr"))) setTransferParts(paths);
+          else if (extension === "nct") setArchivePath(first);
+        } else if (section === "recovery") setRecoveryInputPath(first);
+        clearStatus();
+      }
+    }).then(fn => { unlisten = fn; }).catch(() => undefined);
+    return () => { unlisten?.(); };
+  }, [section, mode]);
 
   function clearStatus() { setMessage(""); setError(false); }
   function reportError(cause: unknown) { setError(true); setMessage(String(cause)); }
@@ -132,7 +159,7 @@ function App() {
         <div className="sidebar-footer"><span className="online-dot"/><span>LOCAL CORE</span><span className="footer-version">v0.1.0</span></div>
       </aside>
 
-      <section className="main-panel">
+      <section className="main-panel">\n        {dragging && <div className="drag-overlay"><div className="drag-overlay-card"><Upload size={28}/><b>Drop to add to NOCTYRA</b><span>Files stay on this device</span></div></div> }
         <header className="topbar">
           <div className="breadcrumb"><span>NOCTYRA</span><ChevronRight size={13}/><b>{current.label}</b></div>
           <div className="topbar-right"><div className="local-pill"><span className="online-dot"/>{busy ? "SECURE OPERATION" : "ALL SYSTEMS LOCAL"}</div><div className="avatar-mark"><Shield size={16}/></div></div>
