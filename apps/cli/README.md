@@ -41,7 +41,7 @@ cargo run -p noctyra-cli -- carrier-embed .\\cover.png .\\archive.nct .\\carrier
 cargo run -p noctyra-cli -- carrier-extract .\\carrier.png .\\extracted.nct
 ```
 
-The carrier input is limited to 64 MiB, decoded RGBA allocation to 512 MiB, dimensions to 16,384 per side, and payload to 16 MiB. Lossy image processing can destroy the payload. The codec does not guarantee concealment or resistance to steganalysis.
+The carrier input is limited to 64 MiB, decoded RGBA allocation to 512 MiB, dimensions to 16,384 per side, and payload to 16 MiB. See [NCAR v1 format notes](../../docs/IMAGE_CARRIER.md) for the pixel mapping and frame layout. Lossy image processing can destroy the payload. The codec does not guarantee concealment or resistance to steganalysis.
 
 ## Current limitations
 - Legacy NMF1 directory archives remain buffered; new directory archives use NMF2 streaming.
