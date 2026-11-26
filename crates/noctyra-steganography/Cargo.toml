@@ -1,0 +1,11 @@
+[package]
+name = "noctyra-steganography"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+noctyra-image = { path = "../noctyra-image" }
+noctyra-container = { path = "../noctyra-container" }
+thiserror.workspace = true

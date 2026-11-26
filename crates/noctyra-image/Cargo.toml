@@ -1,0 +1,10 @@
+[package]
+name = "noctyra-image"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+image.workspace = true
+thiserror.workspace = true
