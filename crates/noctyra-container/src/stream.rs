@@ -121,7 +121,7 @@ pub fn encrypt_stream<R: Read, W: Write>(password: &[u8], mut reader: R, mut wri
     final_aad.extend_from_slice(&header);
     final_aad.extend_from_slice(b"FINL");
     let nonce = nonce_for(&prefix, index);
-    let final_ciphertext = cipher.seal_chunk(&nonce, &final_aad, &final_plain)?;
+    let final_ciphertext = cipher.seal_chunk(&nonce, &final_aad, &final_plain[..])?;
     writer.write_all(b"FINL").map_err(io_error)?;
     writer.write_all(&final_ciphertext).map_err(io_error)?;
     writer.flush().map_err(io_error)?;
