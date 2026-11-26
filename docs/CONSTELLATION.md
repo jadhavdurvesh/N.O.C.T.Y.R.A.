@@ -142,6 +142,34 @@ cargo run -p noctyra-cli -- constellation-manifest-verify-recovery .\\recovered.
 
 The manifest creation command currently requires the complete set so the signer cannot accidentally sign a partial set. Verification and recovery can use any sufficient set of distinct shards, provided every shard matches the signed metadata. The reconstructed archive must still pass NCT authenticated decryption before plaintext is trusted.
 
+
+## Signing identity and trusted-sender registry
+
+NCKV v1 is the encrypted local signing identity vault. It encrypts the Ed25519 seed using the project's Argon2id + XChaCha20-Poly1305 baseline. The public key and vault header are authenticated. The public key can be inspected or exported without unlocking the private key.
+
+NCRT v1 is a key-continuity certificate signed by the old Ed25519 key. Recipients verify it against their independently pinned old public key. It does not establish a person's identity or automatically trust the successor.
+
+NCTS v1 is a password-encrypted local trust registry containing sender public keys, operator labels, and revocation state. Trust addition requires the operator to confirm the full BLAKE3 fingerprint. Revoked keys remain recorded and cannot be returned by the trust lookup API. Registry writes use fresh salt and nonce values and are atomically replaced by the CLI. There is no global revocation feed or anti-rollback counter; restoring an old registry backup can restore an earlier trust state.
+
+CLI examples:
+
+```powershell
+cargo run -p noctyra-cli -- vault-create .\\sender.nckv
+cargo run -p noctyra-cli -- vault-inspect .\\sender.nckv
+cargo run -p noctyra-cli -- vault-export-public .\\sender.nckv .\\sender.pub
+cargo run -p noctyra-cli -- trust-init .\\trusted-senders.ncts
+cargo run -p noctyra-cli -- trust-add .\\trusted-senders.ncts .\\sender.pub "Project sender" <expected-fingerprint>
+cargo run -p noctyra-cli -- trust-list .\\trusted-senders.ncts
+cargo run -p noctyra-cli -- trust-check .\\trusted-senders.ncts <fingerprint>
+cargo run -p noctyra-cli -- trust-revoke .\\trusted-senders.ncts <fingerprint>
+cargo run -p noctyra-cli -- vault-rotate .\\sender.nckv .\\sender-next.nckv .\\rotation.ncrt
+cargo run -p noctyra-cli -- verify-rotation .\\rotation.ncrt .\\sender.pub
+cargo run -p noctyra-cli -- vault-export-public .\\sender-next.nckv .\\sender-next.pub
+cargo run -p noctyra-cli -- trust-rotate .\\trusted-senders.ncts <old-fingerprint> .\\rotation.ncrt .\\sender-next.pub "Project sender" <new-fingerprint>
+```
+
+For trusted-manifest recovery, use `constellation-manifest-verify-trusted-recovery` with the encrypted registry and sender fingerprint. The registry password is requested interactively and is never accepted as a command-line argument. These password-encrypted local files are not yet backed by OS keychain or hardware security.
+
 ## Carrier format policy
 PNG is the primary lossless carrier. BMP may be supported as a secondary format. JPEG and other lossy transformations are not supported for reliable carrier preservation in the initial design.
 
