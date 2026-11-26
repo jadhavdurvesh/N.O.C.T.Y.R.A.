@@ -17,10 +17,15 @@ concurrency:
 jobs:
   rust:
     name: Rust workspace checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y             build-essential curl wget file             libwebkit2gtk-4.1-dev             libayatana-appindicator3-dev             librsvg2-dev patchelf libssl-dev
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -33,8 +38,31 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-      - name: Run tests
+      - name: Run workspace tests
         run: cargo test --workspace --all-targets
 
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+
+  frontend:
+    name: Desktop frontend build
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/package.json
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build frontend
+        run: npm run build
