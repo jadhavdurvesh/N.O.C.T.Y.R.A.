@@ -88,21 +88,49 @@ fn decrypt_file(input: &Path, output: &Path, password: &[u8]) -> Result<(), Box<
 fn run() -> Result<(), Box<dyn Error>> {
     let mut args = env::args_os().skip(1);
     let command = args.next().ok_or("missing command")?;
-    let input = args.next().ok_or("missing input path")?;
+    let command = command.to_string_lossy().into_owned();
+    let paths: Vec<_> = args.collect();
+
     if command == "cleanup-staging" {
-        if args.next().is_some() { return Err("cleanup-staging accepts exactly one parent directory".into()); }
-        let removed = noctyra_core::cleanup_stale_staging(Path::new(&input))?;
+        if paths.len() != 1 { return Err("usage: noctyra cleanup-staging <parent-directory>".into()); }
+        let removed = noctyra_core::cleanup_stale_staging(Path::new(&paths[0]))?;
         println!("Removed {removed} stale NOCTYRA staging director(y/ies).");
         return Ok(());
     }
-    let output = args.next().ok_or("missing output path")?;
-    if args.next().is_some() { return Err("too many arguments".into()); }
 
-    let command = command.to_string_lossy();
-    let input = Path::new(&input);
-    let output = Path::new(&output);
+    if command == "carrier-embed" {
+        if paths.len() != 3 { return Err("usage: noctyra carrier-embed <carrier-image> <encrypted-archive.nct> <output-image>".into()); }
+        let image_bytes = Zeroizing::new(read_bounded(Path::new(&paths[0]))?);
+        let archive_bytes = Zeroizing::new(read_bounded(Path::new(&paths[1]))?);
+        let mut carrier = noctyra_core::CarrierImage::load(&image_bytes)?;
+        noctyra_core::embed_carrier(&mut carrier, &archive_bytes)?;
+        let encoded = Zeroizing::new(carrier.encode(carrier.format())?);
+        let output = Path::new(&paths[2]);
+        let mut temp = temporary_output(output)?;
+        temp.as_file_mut().write_all(&encoded)?;
+        publish(temp, output)?;
+        println!("Encrypted archive embedded in carrier image: {}", output.display());
+        return Ok(());
+    }
 
-    match command.as_ref() {
+    if command == "carrier-extract" {
+        if paths.len() != 2 { return Err("usage: noctyra carrier-extract <carrier-image> <output-archive.nct>".into()); }
+        let image_bytes = Zeroizing::new(read_bounded(Path::new(&paths[0]))?);
+        let carrier = noctyra_core::CarrierImage::load(&image_bytes)?;
+        let payload = Zeroizing::new(noctyra_core::extract_carrier(&carrier)?);
+        let output = Path::new(&paths[1]);
+        let mut temp = temporary_output(output)?;
+        temp.as_file_mut().write_all(&payload)?;
+        publish(temp, output)?;
+        println!("Carrier payload extracted (still encrypted): {}", output.display());
+        return Ok(());
+    }
+
+    if paths.len() != 2 { return Err("expected exactly an input path and an output path".into()); }
+    let input = Path::new(&paths[0]);
+    let output = Path::new(&paths[1]);
+
+    match command.as_str() {
         "encrypt" => {
             let secret = password(true)?;
             encrypt_file(input, output, secret.as_bytes())?;
@@ -134,7 +162,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                 other => return Err(format!("unsupported NCT directory archive version: {other}").into()),
             }
         }
-        _ => return Err("usage: noctyra encrypt <file> <archive.nct> | decrypt <archive.nct> <file> | encrypt-dir <directory> <archive.nct> | decrypt-dir <archive.nct> <new-directory> | cleanup-staging <parent-directory>".into()),
+        _ => return Err("usage: noctyra encrypt <file> <archive.nct> | decrypt <archive.nct> <file> | encrypt-dir <directory> <archive.nct> | decrypt-dir <archive.nct> <new-directory> | cleanup-staging <parent-directory> | carrier-embed <carrier-image> <encrypted-archive.nct> <output-image> | carrier-extract <carrier-image> <output-archive.nct>".into()),
     }
 
     println!("Operation completed: {}", output.display());
