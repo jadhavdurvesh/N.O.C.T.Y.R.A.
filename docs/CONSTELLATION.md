@@ -14,8 +14,8 @@ CONSTELLATION transports an already encrypted NCT payload across a set of indepe
 - Identify a transfer and its format version.
 - Identify each fragment and its position.
 - Detect duplicate, missing, modified, or foreign fragments.
-- Support a manifest describing expected parts and integrity commitments.
-- Optionally add erasure-code redundancy in a later version.
+- Bind recovery metadata to a signed, independently trusted sender identity.
+- Add erasure-code redundancy for loss recovery.
 - Reassemble the exact encrypted NCT byte stream before decryption.
 
 ## Implemented NCFR v1 fragment frame
@@ -37,9 +37,9 @@ Each fragment is an opaque byte record embedded as the NCAR payload:
 
 Default fragment data is 4 MiB; maximum is 8 MiB. A transfer is limited to 256 fragments and 1 GiB of archive data. Framing uses a random 128-bit transfer identifier. A deterministic-ID function exists only for test vectors.
 
-The v1 digests are unkeyed corruption checks, not sender authentication. The transfer identifier is not a secret. The complete NCT archive must still pass its authenticated decryption before plaintext is trusted. A separately authenticated transfer manifest and sender identity are future protocol work.
+The v1 digests are unkeyed corruption checks, not sender authentication. The transfer identifier is not a secret. The complete NCT archive must still pass its authenticated decryption before plaintext is trusted. NCMF v1 signed manifests now provide sender-key authentication when the recipient pins the expected Ed25519 public key.
 
-The future transfer manifest may record the archive identifier, total payload length, fragment sizing, expected fragment set, integrity commitments, and optional recovery parameters. NCFR v1 currently repeats bounded transfer metadata in each fragment and has no separate authenticated manifest. Do not treat unkeyed hashes as proof of origin.
+NCFR v1 remains a standalone transport frame. Authenticated metadata for recovery sets is carried in NCMF v1; it does not retroactively authenticate legacy NCFR v1 transfers.
 
 ## Implemented reassembly rules
 1. Treat every carrier and fragment as untrusted input.
@@ -100,6 +100,46 @@ cargo run -p noctyra-cli -- constellation-recovery-images .\\recovered.nct .\\re
 The example above is illustrative: choose the actual number of cover files based on k+r and provide at least k distinct surviving shards for recovery. The recovery CLI checks the threshold before reconstruction.
 
 BLAKE3 checksums and Reed-Solomon parity provide corruption detection and erasure recovery, not sender authentication. An attacker who can replace enough shards may cause denial of service; final archive authentication still depends on NCT AEAD. Redundancy does not make data undetectable or provide confidentiality.
+
+
+## NCMF signed recovery manifest v1
+
+NCMF v1 is a fixed-length, canonical binary manifest signed with Ed25519. It binds the transfer ID, original archive length, data/parity shard counts, shard size, and archive digest to the signer's public key. The signature input is domain-separated with the ASCII context `NOCTYRA-CONSTELLATION-MANIFEST-V1` followed by a NUL byte and the exact 70-byte manifest body.
+
+| Offset | Length | Field |
+|---:|---:|---|
+| 0 | 4 | Magic: ASCII `NCMF` |
+| 4 | 2 | Manifest version (little-endian, 1) |
+| 6 | 16 | Recovery transfer identifier |
+| 22 | 8 | Original archive length |
+| 30 | 2 | Data shard count |
+| 32 | 2 | Parity shard count |
+| 34 | 4 | Shard payload size |
+| 38 | 32 | Original archive BLAKE3 digest |
+| 70 | 32 | Ed25519 signer public key |
+| 102 | 64 | Ed25519 signature |
+
+The signature proves possession of the private key corresponding to the embedded public key. It does **not** establish a real-world identity by itself. The recipient must obtain and pin the trusted public key through an independent trusted channel; a public key supplied alongside an untrusted manifest is not sufficient.
+
+The CLI stores raw 32-byte private and public key files. On Unix, private-key files are created with mode 0600. The CLI refuses to overwrite existing key files. Keep private keys offline, encrypted at rest, and backed up securely; do not commit them to Git or send them with the carriers. The current CLI key-file workflow is a minimal local-file implementation, not an OS keychain or hardware-backed keystore.
+
+CLI workflow:
+
+```powershell
+# Create an Ed25519 keypair (run once; retain the private key securely)
+cargo run -p noctyra-cli -- constellation-keygen .\\noctyra-signing.key .\\noctyra-signing.pub
+
+# Create a complete recovery shard set first
+cargo run -p noctyra-cli -- constellation-recovery-split .\\archive.nct .\\recovery-shards 4194304 2
+
+# Sign the exact complete set of shards
+cargo run -p noctyra-cli -- constellation-manifest-create .\\recovery-shards\\shard-0000.ncrs .\\recovery-shards\\shard-0001.ncrs .\\recovery-shards\\shard-0002.ncrs .\\recovery-shards\\shard-0003.ncrs .\\recovery-shards\\shard-0004.ncrs .\\recovery-shards\\shard-0005.ncrs .\\recovery-shards\\shard-0006.ncrs .\\recovery-shards\\shard-0007.ncrs .\\recovery-shards\\shard-0008.ncrs .\\recovery-shards\\shard-0009.ncrs .\\noctyra-signing.key .\\transfer.ncmf
+
+# Verify the signer against a separately trusted public key and recover from any k valid shards
+cargo run -p noctyra-cli -- constellation-manifest-verify-recovery .\\recovered.nct .\\transfer.ncmf .\\trusted-sender.pub .\\recovery-shards\\shard-0000.ncrs .\\recovery-shards\\shard-0002.ncrs .\\recovery-shards\\shard-0003.ncrs .\\recovery-shards\\shard-0004.ncrs .\\recovery-shards\\shard-0005.ncrs .\\recovery-shards\\shard-0006.ncrs .\\recovery-shards\\shard-0007.ncrs
+```
+
+The manifest creation command currently requires the complete set so the signer cannot accidentally sign a partial set. Verification and recovery can use any sufficient set of distinct shards, provided every shard matches the signed metadata. The reconstructed archive must still pass NCT authenticated decryption before plaintext is trusted.
 
 ## Carrier format policy
 PNG is the primary lossless carrier. BMP may be supported as a secondary format. JPEG and other lossy transformations are not supported for reliable carrier preservation in the initial design.
