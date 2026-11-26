@@ -81,11 +81,21 @@
 - [ ] End-to-end recovery image integration tests and carrier capacity benchmarks
 - [ ] End-to-end multi-image integration tests and carrier capacity benchmarks
 
-## M5 — Recovery
-- [ ] Recovery-key workflow
-- [ ] Recovery from valid carrier sets
-- [ ] Safe destination handling
-- [ ] Failure and corruption reporting
+## M5 — Recovery intelligence and reliability
+- [x] Verify individual NCRS shards against an already trusted, signature-verified manifest
+- [x] Diagnose valid, damaged, duplicate and foreign carrier images independently
+- [x] Report valid unique shard count, recovery threshold and missing indexes
+- [x] Keep diagnostics read-only; never alter source carriers or trust records
+- [x] Preserve no-clobber temporary-output publication and NCT authentication before plaintext release
+- [x] Add per-shard verification regression coverage
+- [ ] Add resumable transfer checkpoints with authenticated state and safe restart semantics
+- [ ] Add a recovery-key workflow with clear separation from sender signing identities
+- [ ] Add streaming shard reconstruction to reduce peak memory usage
+- [ ] Add carrier capacity planner and batch diagnostics report
+- [ ] Add crash-injection, disk-full and interrupted-write recovery tests
+- [ ] Add cross-platform filesystem publication and permission tests
+- [ ] Run full workspace CI and resolve all failures
+- [ ] Independent security review of recovery and trust-state handling
 
 ## M6 — Desktop
 - [ ] Tauri 2 shell
