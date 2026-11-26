@@ -1,0 +1,32 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/noctyra-core",
+    "crates/noctyra-crypto",
+    "crates/noctyra-container",
+    "crates/noctyra-image",
+    "crates/noctyra-steganography",
+    "crates/noctyra-compression",
+    "crates/noctyra-constellation",
+    "crates/noctyra-recovery",
+    "crates/noctyra-validation",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "UNLICENSED"
+publish = false
+rust-version = "1.85"
+
+[workspace.dependencies]
+thiserror = "2"
+zeroize = { version = "1", features = ["derive"] }
+argon2 = "0.5"
+chacha20poly1305 = "0.10"
+rand_core = { version = "0.6", features = ["getrandom"] }
+image = { version = "0.25", default-features = false, features = ["png", "bmp"] }
+zstd = "0.13"
+blake3 = "1"
+serde = { version = "1", features = ["derive"] }
+postcard = { version = "1", features = ["alloc"] }
