@@ -22,8 +22,17 @@ NOCTYRA is a private cross-platform personal information-protection project. It 
 - [Project identity](docs/PROJECT_IDENTITY.md)
 - [Development roadmap](docs/ROADMAP.md)
 
-## Desktop application
-The initial Tauri + React desktop shell is in `apps/desktop`. Start it with `npm install` followed by `npm run tauri dev` from that directory. See [desktop instructions](apps/desktop/README.md).
+## Desktop application — primary interface
+NOCTYRA now has a multi-workspace Tauri + React desktop application in `apps/desktop`. It provides graphical workflows for file/folder encryption, image concealment and extraction, CONSTELLATION fragment splitting/reassembly, and independent recovery-key operations. Normal operations no longer require typing CLI commands.
+
+Run it from `apps/desktop`:
+
+```powershell
+npm install
+npm run tauri dev
+```
+
+The CLI remains available for scripting and advanced diagnostics. See [desktop instructions](apps/desktop/README.md) for prerequisites, limitations and security notes.
 
 ## Directory archives
 
