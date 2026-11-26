@@ -57,6 +57,13 @@ Or encode the archive into multiple supplied PNG/BMP cover images. The tool esti
 cargo run -p noctyra-cli -- constellation-encode .\\archive.nct .\\carrier-set .\\cover1.png .\\cover2.png .\\cover3.png
 ```
 
+Inspect a partial set before reassembly; the command reports missing zero-based indexes and rejects duplicate or mixed-transfer fragments:
+
+```powershell
+cargo run -p noctyra-cli -- constellation-inspect .\\fragments\\fragment-0000.ncfr .\\fragments\\fragment-0002.ncfr
+cargo run -p noctyra-cli -- constellation-inspect-images .\\carrier-set\\carrier-0001.png .\\carrier-set\\carrier-0003.png
+```
+
 Reassemble from raw fragment files (order does not matter):
 
 ```powershell
