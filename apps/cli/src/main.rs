@@ -117,11 +117,152 @@ fn write_new_key_file(path: &Path, bytes: &[u8], private: bool) -> Result<(), Bo
     Ok(())
 }
 
+fn replace_private_file(path: &Path, bytes: &[u8]) -> Result<(), Box<dyn Error>> {
+    let parent = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let mut temp = tempfile::NamedTempFile::new_in(parent)?;
+    temp.as_file_mut().write_all(bytes)?;
+    temp.as_file().sync_all()?;
+    temp.persist(path).map_err(|error| error.error)?;
+    Ok(())
+}
+
 fn run() -> Result<(), Box<dyn Error>> {
     let mut args = env::args_os().skip(1);
     let command = args.next().ok_or("missing command")?;
     let command = command.to_string_lossy().into_owned();
     let paths: Vec<_> = args.collect();
+
+    if command == "trust-init" {
+        if paths.len() != 1 { return Err("usage: noctyra trust-init <trusted-senders.ncts>".into()); }
+        let output = Path::new(&paths[0]);
+        if output.exists() { return Err("refusing to overwrite an existing trust registry".into()); }
+        let secret = password(true)?;
+        let bytes = Zeroizing::new(noctyra_core::create_trust_store(secret.as_bytes())?);
+        write_new_key_file(output, &bytes, true)?;
+        println!("Encrypted trusted-sender registry created: {}", output.display());
+        return Ok(());
+    }
+
+    if command == "trust-add" {
+        if paths.len() != 4 { return Err("usage: noctyra trust-add <registry.ncts> <public-key.bin> <label> <expected-fingerprint>".into()); }
+        let registry_path = Path::new(&paths[0]);
+        let public_bytes = Zeroizing::new(read_limited(Path::new(&paths[1]), 32, "Ed25519 public key")?);
+        let public_key: [u8; 32] = public_bytes.as_slice().try_into().map_err(|_| "Ed25519 public key must be exactly 32 bytes")?;
+        let expected = paths[3].to_string_lossy();
+        let actual = blake3::hash(&public_key).to_hex().to_string();
+        if actual != expected { return Err(format!("fingerprint confirmation mismatch; computed fingerprint: {actual}").into()); }
+        let registry_bytes = Zeroizing::new(read_limited(registry_path, noctyra_core::MAX_TRUST_STORE_BYTES as u64, "trust registry")?);
+        let secret = password(false)?;
+        let mut store = noctyra_core::open_trust_store(secret.as_bytes(), &registry_bytes)?;
+        let label = paths[2].to_string_lossy().into_owned();
+        store.add(public_key, label)?;
+        let updated = Zeroizing::new(noctyra_core::save_trust_store(secret.as_bytes(), &store)?);
+        replace_private_file(registry_path, &updated)?;
+        println!("Public key explicitly added to the encrypted trust registry.");
+        println!("Fingerprint: {actual}");
+        return Ok(());
+    }
+
+    if command == "trust-list" || command == "trust-revoke" || command == "trust-check" {
+        let expected = if command == "trust-list" { 1 } else { 2 };
+        if paths.len() != expected {
+            return Err("usage: noctyra trust-list <registry.ncts> | trust-revoke <registry.ncts> <fingerprint> | trust-check <registry.ncts> <fingerprint>".into());
+        }
+        let registry_path = Path::new(&paths[0]);
+        let registry_bytes = Zeroizing::new(read_limited(registry_path, noctyra_core::MAX_TRUST_STORE_BYTES as u64, "trust registry")?);
+        let secret = password(false)?;
+        let mut store = noctyra_core::open_trust_store(secret.as_bytes(), &registry_bytes)?;
+        if command == "trust-list" {
+            if store.entries().is_empty() { println!("Trust registry is empty."); }
+            for entry in store.entries() {
+                println!("{} | {} | {}", entry.fingerprint(), if entry.revoked { "REVOKED" } else { "TRUSTED" }, entry.label);
+            }
+            return Ok(());
+        }
+        let fingerprint = paths[1].to_string_lossy();
+        if command == "trust-revoke" {
+            store.revoke(&fingerprint)?;
+            let updated = Zeroizing::new(noctyra_core::save_trust_store(secret.as_bytes(), &store)?);
+            replace_private_file(registry_path, &updated)?;
+            println!("Key revoked in the encrypted local trust registry: {fingerprint}");
+            return Ok(());
+        }
+        let public_key = store.trusted_public_key(&fingerprint)?;
+        println!("Key is trusted and not revoked.");
+        println!("Public key: {}", public_key.iter().map(|b| format!("{b:02x}")).collect::<String>());
+        return Ok(());
+    }
+
+    if command == "vault-create" {
+        if paths.len() != 1 { return Err("usage: noctyra vault-create <identity.nckv>".into()); }
+        let output = Path::new(&paths[0]);
+        if output.exists() { return Err("refusing to overwrite an existing key vault".into()); }
+        let secret = password(true)?;
+        let vault = Zeroizing::new(noctyra_core::create_vault(secret.as_bytes())?);
+        write_new_key_file(output, &vault, true)?;
+        let (public_key, fingerprint) = noctyra_core::inspect_vault(&vault)?;
+        println!("Encrypted Ed25519 identity vault created.");
+        println!("Public-key fingerprint: {fingerprint}");
+        println!("Public key: {}", public_key.iter().map(|b| format!("{b:02x}")).collect::<String>());
+        return Ok(());
+    }
+
+    if command == "vault-inspect" || command == "vault-export-public" {
+        let expected = if command == "vault-inspect" { 1 } else { 2 };
+        if paths.len() != expected {
+            return Err("usage: noctyra vault-inspect <identity.nckv> | vault-export-public <identity.nckv> <public-key.bin>".into());
+        }
+        let bytes = Zeroizing::new(read_limited(Path::new(&paths[0]), noctyra_core::VAULT_FILE_LEN as u64, "key vault")?);
+        let (public_key, fingerprint) = noctyra_core::inspect_vault(&bytes)?;
+        println!("Identity fingerprint: {fingerprint}");
+        println!("Public key: {}", public_key.iter().map(|b| format!("{b:02x}")).collect::<String>());
+        if command == "vault-export-public" {
+            let output = Path::new(&paths[1]);
+            write_new_key_file(output, &public_key, false)?;
+            println!("Public key exported: {}", output.display());
+        }
+        return Ok(());
+    }
+
+    if command == "vault-rotate" {
+        if paths.len() != 3 { return Err("usage: noctyra vault-rotate <old-identity.nckv> <new-identity.nckv> <rotation.ncrt>".into()); }
+        let old_path = Path::new(&paths[0]);
+        let new_path = Path::new(&paths[1]);
+        let certificate_path = Path::new(&paths[2]);
+        if new_path.exists() || certificate_path.exists() || old_path == new_path || new_path == certificate_path || old_path == certificate_path {
+            return Err("rotation outputs must be distinct, new paths that do not already exist".into());
+        }
+        let old_bytes = Zeroizing::new(read_limited(old_path, noctyra_core::VAULT_FILE_LEN as u64, "old key vault")?);
+        let old_password = password(false)?;
+        let old_signing_key = noctyra_core::unlock_vault(old_password.as_bytes(), &old_bytes)?;
+        let new_password = password(true)?;
+        let new_bytes = Zeroizing::new(noctyra_core::create_vault(new_password.as_bytes())?);
+        let (new_public_key, new_fingerprint) = noctyra_core::inspect_vault(&new_bytes)?;
+        let certificate = Zeroizing::new(noctyra_core::create_rotation_certificate(&old_signing_key, &new_public_key));
+        write_new_key_file(new_path, &new_bytes, true)?;
+        if let Err(error) = write_new_key_file(certificate_path, &certificate, false) {
+            return Err(format!("new vault was created at {}, but rotation certificate could not be written: {error}", new_path.display()).into());
+        }
+        println!("New encrypted identity vault created: {}", new_path.display());
+        println!("Rotation certificate created: {}", certificate_path.display());
+        println!("New identity fingerprint: {new_fingerprint}");
+        println!("Distribute the certificate and new public key; recipients must verify the certificate using their independently pinned old key before accepting the successor.");
+        return Ok(());
+    }
+
+    if command == "verify-rotation" {
+        if paths.len() != 2 { return Err("usage: noctyra verify-rotation <rotation.ncrt> <trusted-old-public-key.bin>".into()); }
+        let certificate = Zeroizing::new(read_limited(Path::new(&paths[0]), noctyra_core::ROTATION_CERTIFICATE_LEN as u64, "rotation certificate")?);
+        let old_public = Zeroizing::new(read_limited(Path::new(&paths[1]), 32, "trusted old public key")?);
+        let trusted: [u8; 32] = old_public.as_slice().try_into().map_err(|_| "trusted old public key must be exactly 32 bytes")?;
+        let next = noctyra_core::verify_rotation_certificate(&certificate, &trusted)?;
+        let fingerprint = blake3::hash(&next).to_hex().to_string();
+        println!("Rotation certificate valid: trusted old key authorized this successor.");
+        println!("Successor fingerprint: {fingerprint}");
+        println!("Successor public key: {}", next.iter().map(|b| format!("{b:02x}")).collect::<String>());
+        println!("This verifies continuity only. Review and explicitly pin the successor; it is not automatically trusted.");
+        return Ok(());
+    }
 
     if command == "constellation-keygen" {
         if paths.len() != 2 { return Err("usage: noctyra constellation-keygen <private-key-file> <public-key-file>".into()); }
@@ -520,7 +661,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                 other => return Err(format!("unsupported NCT directory archive version: {other}").into()),
             }
         }
-        _ => return Err("usage: noctyra encrypt <file> <archive.nct> | decrypt <archive.nct> <file> | encrypt-dir <directory> <archive.nct> | decrypt-dir <archive.nct> <new-directory> | cleanup-staging <parent-directory> | carrier-embed <carrier-image> <encrypted-archive.nct> <output-image> | carrier-extract <carrier-image> <output-archive.nct> | constellation-split <archive.nct> <new-output-directory> [fragment-bytes] | constellation-inspect <fragment-1.ncfr> [more-fragments...] | constellation-inspect-images <carrier-image1> [more-carriers...] | constellation-reassemble <output-archive.nct> <fragment-1.ncfr> [fragment-2.ncfr ...] | constellation-encode <archive.nct> <new-output-directory> <cover-image1> [cover-image2 ...] | constellation-reassemble-images <output-archive.nct> <carrier-image1> [carrier-image2 ...] | constellation-recovery-encode <archive.nct> <new-output-directory> <shard-bytes> <parity-shards> <cover-image1> [more-images...] | constellation-recovery-split <archive.nct> <new-output-directory> <shard-bytes> <parity-shards> | constellation-recovery <output-archive.nct> <shard1.ncrs> [more-shards...] | constellation-recovery-images <output-archive.nct> <carrier1.png> [more-carriers...] | vault-create <identity.nckv> | vault-inspect <identity.nckv> | vault-export-public <identity.nckv> <public-key.bin> | vault-rotate <old.nckv> <new.nckv> <rotation.ncrt> | verify-rotation <rotation.ncrt> <trusted-old-public-key.bin> | constellation-keygen <private-key-file> <public-key-file> | constellation-manifest-create <shard1.ncrs> [more-shards...] <private-key-file> <manifest.ncmf> | constellation-manifest-verify-recovery <output.nct> <manifest.ncmf> <trusted-public-key-file> <shard1.ncrs> [more-shards...]".into()),
+        _ => return Err("usage: noctyra encrypt <file> <archive.nct> | decrypt <archive.nct> <file> | encrypt-dir <directory> <archive.nct> | decrypt-dir <archive.nct> <new-directory> | cleanup-staging <parent-directory> | carrier-embed <carrier-image> <encrypted-archive.nct> <output-image> | carrier-extract <carrier-image> <output-archive.nct> | constellation-split <archive.nct> <new-output-directory> [fragment-bytes] | constellation-inspect <fragment-1.ncfr> [more-fragments...] | constellation-inspect-images <carrier-image1> [more-carriers...] | constellation-reassemble <output-archive.nct> <fragment-1.ncfr> [fragment-2.ncfr ...] | constellation-encode <archive.nct> <new-output-directory> <cover-image1> [cover-image2 ...] | constellation-reassemble-images <output-archive.nct> <carrier-image1> [carrier-image2 ...] | constellation-recovery-encode <archive.nct> <new-output-directory> <shard-bytes> <parity-shards> <cover-image1> [more-images...] | constellation-recovery-split <archive.nct> <new-output-directory> <shard-bytes> <parity-shards> | constellation-recovery <output-archive.nct> <shard1.ncrs> [more-shards...] | constellation-recovery-images <output-archive.nct> <carrier1.png> [more-carriers...] | vault-create <identity.nckv> | vault-inspect <identity.nckv> | vault-export-public <identity.nckv> <public-key.bin> | vault-rotate <old.nckv> <new.nckv> <rotation.ncrt> | verify-rotation <rotation.ncrt> <trusted-old-public-key.bin> | trust-init <registry.ncts> | trust-add <registry.ncts> <public-key.bin> <label> <expected-fingerprint> | trust-list <registry.ncts> | trust-revoke <registry.ncts> <fingerprint> | trust-check <registry.ncts> <fingerprint> | vault-create <identity.nckv> | vault-inspect <identity.nckv> | vault-export-public <identity.nckv> <public-key.bin> | vault-rotate <old.nckv> <new.nckv> <rotation.ncrt> | verify-rotation <rotation.ncrt> <trusted-old-public-key.bin> | constellation-keygen <private-key-file> <public-key-file> | constellation-manifest-create <shard1.ncrs> [more-shards...] <private-key-file> <manifest.ncmf> | constellation-manifest-verify-recovery <output.nct> <manifest.ncmf> <trusted-public-key-file> <shard1.ncrs> [more-shards...]".into()),
     }
 
     println!("Operation completed: {}", output.display());
