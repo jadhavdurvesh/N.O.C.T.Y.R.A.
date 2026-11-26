@@ -55,8 +55,51 @@ The future transfer manifest may record the archive identifier, total payload le
 
 The CLI currently supports splitting into NCFR files, embedding fragments into multiple supplied PNG/BMP cover images, inspecting missing indexes, and reassembling from out-of-order NCFR files or carrier images. CLI fragment generation uses a FragmentPlan to encode one fragment at a time rather than retaining a second full set of fragment copies in memory. The source encrypted archive is still currently read into memory; a fully streaming archive-to-fragment pipeline remains future work. The v1 implementation rejects duplicate indexes, mixed transfer IDs, malformed lengths, corrupt fragment digests, missing parts, and a final archive digest mismatch. It does not yet implement parity/recovery shards.
 
-## Optional redundancy
-A later protocol revision may use a well-reviewed Reed-Solomon erasure-coding implementation. Code parameters, shard sizing, maximum recovery count, and interoperability test vectors must be specified. Redundancy improves resilience to missing parts; it does not make data undetectable or provide confidentiality.
+## NCRS recovery shard v1
+
+NCRS is a separate, versioned recovery frame. NCFR v1 remains unchanged. NCRS v1 uses systematic Reed-Solomon coding over GF(2^8): the first k shards contain the archive split into fixed-size blocks (zero-padded at the end), followed by r parity shards. Any k distinct valid shards from the same transfer can reconstruct the original archive, subject to successful final digest verification.
+
+| Offset | Length | Field |
+|---:|---:|---|
+| 0 | 4 | Magic: ASCII `NCRS` |
+| 4 | 2 | Recovery frame version (little-endian, 1) |
+| 6 | 16 | Random transfer identifier |
+| 22 | 8 | Original archive length |
+| 30 | 2 | Data shard count (k) |
+| 32 | 2 | Parity shard count (r) |
+| 34 | 2 | Zero-based shard index (0..k+r-1) |
+| 36 | 4 | Fixed shard payload length |
+| 40 | 32 | BLAKE3 digest of original archive |
+| 72 | 32 | BLAKE3 digest of this shard payload |
+| 104 | variable | Shard payload |
+
+The current implementation uses the `reed-solomon-erasure` crate's GF(2^8) codec. Each transfer is bounded to 255 total shards, 8 MiB per shard, and 1 GiB of source archive data. At least one parity shard is required. The recovery API rejects duplicate indexes, mixed transfer metadata, malformed sizes and corrupt shard digests; it verifies the Reed-Solomon codeword and then verifies the reconstructed archive digest and NCT header.
+
+CLI examples:
+
+```powershell
+# Split the archive into data shards plus 2 parity shards
+cargo run -p noctyra-cli -- constellation-recovery-split .\\archive.nct .\\recovery-shards 4194304 2
+
+# Recover from any sufficient set; the order does not matter
+cargo run -p noctyra-cli -- constellation-recovery .\\recovered.nct .\\recovery-shards\\shard-0000.ncrs .\\recovery-shards\\shard-0002.ncrs .\\recovery-shards\\shard-0003.ncrs
+```
+
+To create recovery images, supply at least k+r PNG/BMP covers. All covers must have enough payload capacity for the chosen shard size plus the NCRS header:
+
+```powershell
+cargo run -p noctyra-cli -- constellation-recovery-encode .\\archive.nct .\\recovery-carriers 4194304 2 .\\cover1.png .\\cover2.png .\\cover3.png .\\cover4.png .\\cover5.png .\\cover6.png .\\cover7.png .\\cover8.png .\\cover9.png .\\cover10.png
+```
+
+Recover from the surviving carriers:
+
+```powershell
+cargo run -p noctyra-cli -- constellation-recovery-images .\\recovered.nct .\\recovery-carriers\\recovery-0001.png .\\recovery-carriers\\recovery-0003.png .\\recovery-carriers\\recovery-0004.png .\\recovery-carriers\\recovery-0005.png .\\recovery-carriers\\recovery-0006.png .\\recovery-carriers\\recovery-0007.png .\\recovery-carriers\\recovery-0008.png .\\recovery-carriers\\recovery-0009.png
+```
+
+The example above is illustrative: choose the actual number of cover files based on k+r and provide at least k distinct surviving shards for recovery. The recovery CLI checks the threshold before reconstruction.
+
+BLAKE3 checksums and Reed-Solomon parity provide corruption detection and erasure recovery, not sender authentication. An attacker who can replace enough shards may cause denial of service; final archive authentication still depends on NCT AEAD. Redundancy does not make data undetectable or provide confidentiality.
 
 ## Carrier format policy
 PNG is the primary lossless carrier. BMP may be supported as a secondary format. JPEG and other lossy transformations are not supported for reliable carrier preservation in the initial design.
