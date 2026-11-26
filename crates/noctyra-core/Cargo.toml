@@ -16,3 +16,5 @@ noctyra-steganography = { path = "../noctyra-steganography" }
 
 noctyra-constellation = { path = "../noctyra-constellation" }
 noctyra-keystore = { path = "../noctyra-keystore" }
+
+noctyra-recovery = { path = "../noctyra-recovery" }
