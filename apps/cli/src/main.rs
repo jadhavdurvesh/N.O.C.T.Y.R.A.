@@ -204,10 +204,9 @@ fn run() -> Result<(), Box<dyn Error>> {
         let refs: Vec<&[u8]> = shards.iter().map(|shard| shard.as_slice()).collect();
         let report = noctyra_core::verify_manifest_shards(&manifest, refs.iter().copied())?;
         if !report.recoverable { return Err(format!("signed set is authentic but incomplete: received {}, need at least {}", report.received_shards, report.data_shards).into()); }
-        let archive = Zeroizing::new(noctyra_core::recover_archive(refs)?);
         let output = Path::new(&paths[0]);
         let mut temp = temporary_output(output)?;
-        temp.as_file_mut().write_all(&archive)?;
+        noctyra_core::recover_archive_to_writer(refs, temp.as_file_mut())?;
         publish(temp, output)?;
         println!("Trusted-sender verification and authenticated recovery succeeded: {}", output.display());
         return Ok(());
@@ -435,19 +434,24 @@ fn run() -> Result<(), Box<dyn Error>> {
         if !report.recoverable {
             return Err(format!("signed transfer is authentic but incomplete: received {}, need at least {} valid carriers", report.received_shards, report.data_shards).into());
         }
-        let archive = Zeroizing::new(noctyra_core::recover_archive(shard_refs.iter().copied())?);
+        let mut archive_temp = tempfile::tempfile()?;
+        noctyra_core::recover_archive_to_writer(shard_refs.iter().copied(), &mut archive_temp)?;
+        archive_temp.seek(SeekFrom::Start(0))?;
 
         println!("Enter the file-encryption password supplied separately by the sender.");
         let archive_password = password(false)?;
         let mut temp = temporary_output(Path::new(&paths[0]))?;
-        if archive.len() < 6 || &archive[..4] != b"NCTY" {
-            return Err("recovered data is not a supported NCT archive".into());
-        }
-        let version = u16::from_le_bytes([archive[4], archive[5]]);
+        let mut prefix = [0u8; 6];
+        archive_temp.read_exact(&mut prefix)?;
+        archive_temp.seek(SeekFrom::Start(0))?;
+        let version = u16::from_le_bytes([prefix[4], prefix[5]]);
         match version {
-            2 => noctyra_core::decrypt_stream(archive_password.as_bytes(), std::io::Cursor::new(archive.as_slice()), temp.as_file_mut())?,
+            2 => noctyra_core::decrypt_stream(archive_password.as_bytes(), archive_temp, temp.as_file_mut())?,
             1 => {
-                let plaintext = Zeroizing::new(noctyra_core::open_archive(archive_password.as_bytes(), &archive)?);
+                let mut archive_bytes = Zeroizing::new(Vec::new());
+                archive_temp.take(MAX_INPUT_BYTES + 1).read_to_end(&mut archive_bytes)?;
+                if archive_bytes.len() as u64 > MAX_INPUT_BYTES { return Err("recovered legacy archive exceeds the configured limit".into()); }
+                let plaintext = Zeroizing::new(noctyra_core::open_archive(archive_password.as_bytes(), &archive_bytes)?);
                 temp.as_file_mut().write_all(&plaintext)?;
             }
             other => return Err(format!("unsupported recovered NCT archive version: {other}").into()),
@@ -651,10 +655,9 @@ fn run() -> Result<(), Box<dyn Error>> {
         if !report.recoverable {
             return Err(format!("signed set is authentic but incomplete: received {}, need at least {}", report.received_shards, report.data_shards).into());
         }
-        let archive = Zeroizing::new(noctyra_core::recover_archive(refs)?);
         let output = Path::new(&paths[0]);
         let mut temp = temporary_output(output)?;
-        temp.as_file_mut().write_all(&archive)?;
+        noctyra_core::recover_archive_to_writer(refs, temp.as_file_mut())?;
         publish(temp, output)?;
         println!("Authenticated recovery succeeded. Signer key is pinned to the supplied trusted public key; recovered archive: {}", output.display());
         return Ok(());
@@ -838,10 +841,9 @@ fn run() -> Result<(), Box<dyn Error>> {
         if !report.recoverable {
             return Err(format!("not enough shards: received {}, need at least {}", report.received_shards, report.data_shards).into());
         }
-        let archive = Zeroizing::new(noctyra_core::recover_archive(refs)?);
         let output = Path::new(&paths[0]);
         let mut temp = temporary_output(output)?;
-        temp.as_file_mut().write_all(&archive)?;
+        noctyra_core::recover_archive_to_writer(refs, temp.as_file_mut())?;
         publish(temp, output)?;
         println!("CONSTELLATION recovery succeeded from {} of {} shards", report.received_shards, report.data_shards as usize + report.parity_shards as usize);
         return Ok(());
