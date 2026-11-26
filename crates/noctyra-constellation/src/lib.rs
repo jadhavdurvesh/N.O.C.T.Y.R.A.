@@ -153,8 +153,8 @@ where I: IntoIterator<Item = &'a [u8]> {
     let first = fragments.first().ok_or(ConstellationError::MissingFragments)?;
     let mut seen = vec![false; first.count as usize];
     for fragment in &fragments {
-        if fragment.transfer_id != first.transfer_id || fragment.archive_len != first.archive_len
-            || fragment.count != first.count || fragment.archive_digest != first.archive_digest {
+        if fragment.transfer_id != transfer_id || fragment.archive_len != archive_len_u64
+            || fragment.count != count as u32 || fragment.archive_digest != archive_digest {
             return Err(ConstellationError::TransferMismatch);
         }
         let slot = &mut seen[fragment.index as usize];
@@ -177,7 +177,10 @@ where I: IntoIterator<Item = &'a [u8]> {
     for input in inputs { fragments.push(parse_fragment(input)?); }
     let first = fragments.first().ok_or(ConstellationError::MissingFragments)?;
     let count = first.count as usize;
-    let archive_len = usize::try_from(first.archive_len).map_err(|_| ConstellationError::ArchiveTooLarge)?;
+    let archive_len_u64 = first.archive_len;
+    let transfer_id = first.transfer_id;
+    let archive_digest = first.archive_digest;
+    let archive_len = usize::try_from(archive_len_u64).map_err(|_| ConstellationError::ArchiveTooLarge)?;
     if archive_len > MAX_ARCHIVE_BYTES { return Err(ConstellationError::ArchiveTooLarge); }
     let mut slots: Vec<Option<Vec<u8>>> = (0..count).map(|_| None).collect();
     for fragment in fragments {
@@ -195,7 +198,7 @@ where I: IntoIterator<Item = &'a [u8]> {
         archive.extend_from_slice(&part.ok_or(ConstellationError::MissingFragments)?);
         if archive.len() > archive_len { return Err(ConstellationError::MalformedFragment); }
     }
-    if archive.len() != archive_len || digest(&archive) != first.archive_digest {
+    if archive.len() != archive_len || digest(&archive) != archive_digest {
         return Err(ConstellationError::ArchiveIntegrity);
     }
     validate_nct_archive(&archive)?;
