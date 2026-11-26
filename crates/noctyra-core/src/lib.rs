@@ -4,7 +4,7 @@
 //! cryptography or manipulating key material in the frontend.
 
 pub use noctyra_container::{
-    extract_directory, open as open_archive, seal as seal_archive, seal_directory, ContainerError,
+    decrypt_stream, encrypt_stream, extract_directory, open as open_archive, seal as seal_archive, seal_directory, ContainerError, STREAM_CHUNK_SIZE,
 };
 pub use noctyra_crypto::{CryptoError, EncryptedPayload};
 
