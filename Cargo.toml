@@ -11,6 +11,7 @@ members = [
     "crates/noctyra-recovery",
     "crates/noctyra-validation",
     "apps/cli",
+    "apps/desktop/src-tauri",
 ]
 
 [workspace.package]
