@@ -59,9 +59,13 @@ impl CarrierImage {
         reader.limits(limits);
         let decoded = reader.decode().map_err(|e| ImageError::Decode(e.to_string()))?;
         let (width, height) = (decoded.width(), decoded.height());
+        let rgba_bytes = u64::from(width).checked_mul(u64::from(height))
+            .and_then(|pixels| pixels.checked_mul(4))
+            .ok_or(ImageError::DimensionsTooLarge)?;
         if width == 0 || height == 0
             || width > noctyra_validation::MAX_IMAGE_DIMENSION
-            || height > noctyra_validation::MAX_IMAGE_DIMENSION {
+            || height > noctyra_validation::MAX_IMAGE_DIMENSION
+            || rgba_bytes > MAX_DECODED_IMAGE_BYTES {
             return Err(ImageError::DimensionsTooLarge);
         }
         Ok(Self { format, pixels: decoded.to_rgba8() })
