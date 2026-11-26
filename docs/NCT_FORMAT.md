@@ -91,9 +91,46 @@ KDF parameters are currently compiled into the crypto crate. A future format rev
 
 - CLI and desktop file decryption support v1 and v2.
 - New single-file encryption writes v2.
-- The initial directory-tree archive API still uses the v1 envelope and buffers the complete tree in memory. Streaming directory serialization is a separate unfinished task.
+- New directory encryption writes NCT v2 with an NMF2 plaintext stream: a bounded manifest followed by file bytes in sorted path order. Directory file data is streamed; the full tree is not buffered.
+- Directory extraction first authenticates the complete NCT v2 stream into an anonymous temporary file, validates all manifest paths and offsets, and only then creates the destination tree. It copies file contents in bounded chunks.
+- The older NMF1 directory archive remains available through the legacy API and is still buffered; CLI and desktop readers retain v1 directory compatibility.
 - No promise of stable external interoperability is made for these draft formats.
 
 ## Security status
 
 This is engineering code, not an independently audited cryptographic product. The format requires review, cross-platform testing, fuzzing, test vectors and dependency review before being trusted with irreplaceable data. No security certification or military/government assurance is claimed.
+
+
+## NMF2 directory payload (inside NCT v2 encryption)
+
+The NCT v2 authenticated plaintext for a directory archive is a sequential NMF2 stream:
+
+| Length | Field |
+|---:|---|
+| 4 | Magic: ASCII `NMF2` |
+| 4 | Entry count (u32 little-endian) |
+| repeated | Entry header and, for files, the file bytes |
+
+Each entry header is:
+
+| Length | Field |
+|---:|---|
+| 1 | Kind: `0` directory, `1` regular file |
+| 4 | UTF-8 relative path length (u32 little-endian) |
+| 8 | File byte length (u64 little-endian; zero for directories) |
+| variable | Relative path bytes, using `/` separators |
+
+For file entries, exactly `file_length` raw bytes follow the path immediately. Entries are sorted lexicographically by relative path. Empty directories are explicit entries; empty files have a zero file length.
+
+### Directory resource and path rules
+
+- At most 100,000 entries.
+- At most 4,096 UTF-8 bytes per path and 64 MiB of path bytes total.
+- Total uncompressed file bytes are limited to 1 TiB by the current implementation.
+- Only regular files and directories are accepted. Symlinks and special filesystem objects are rejected.
+- Paths are relative, UTF-8, traversal-free, and reject platform-reserved device names and invalid separators.
+- Duplicate case-folded paths and children under a file entry are rejected.
+- Extraction authenticates the complete NCT stream to an anonymous temporary file before creating the destination. Manifest validation precedes destination creation; failed extraction removes the partial destination.
+- The source directory is enumerated before streaming. File type and size are checked again when each file is opened; the format does not provide a filesystem snapshot against concurrent writers.
+
+The NMF2 payload is protected by the NCT v2 chunk authentication and finalization record. It is not a standalone format and must not be processed without the enclosing NCT v2 authenticated stream.
