@@ -17,9 +17,12 @@
 - [ ] Add streaming support and key-envelope/recovery-key design
 
 ## M2 — File archive system
-- [ ] Encrypted file manifest
-- [ ] Safe multi-file archive creation and extraction
-- [ ] Path traversal and symlink protections
+- [x] Initial encrypted multi-file directory tree format
+- [x] Safe destination creation and no-merge extraction policy
+- [x] Reject symlinks, special files, traversal paths and platform device names
+- [x] Wrong-password and directory round-trip test cases
+- [ ] Independent cross-platform archive review
+- [ ] Streaming archive creation and extraction
 - [ ] Bounded chunking and authenticated finalization
 - [ ] Atomic output and overwrite protection
 
