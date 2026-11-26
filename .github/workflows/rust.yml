@@ -16,8 +16,12 @@ concurrency:
 
 jobs:
   rust:
-    name: Rust workspace checks
-    runs-on: ubuntu-24.04
+    name: Rust workspace checks (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,10 +38,10 @@ jobs:
         run: cargo fmt --all
 
       - name: Run workspace tests
-        run: cargo test -p noctyra-crypto -p noctyra-container -p noctyra-core -p noctyra-cli --all-targets
+        run: cargo test -p noctyra-crypto -p noctyra-container -p noctyra-core -p noctyra-cli -p noctyra-constellation -p noctyra-recovery -p noctyra-image -p noctyra-steganography -p noctyra-compression -p noctyra-keystore -p noctyra-validation --all-targets
 
       - name: Run Clippy
-        run: cargo clippy -p noctyra-crypto -p noctyra-container -p noctyra-core -p noctyra-cli --all-targets -- -D warnings
+        run: cargo clippy -p noctyra-crypto -p noctyra-container -p noctyra-core -p noctyra-cli -p noctyra-constellation -p noctyra-recovery -p noctyra-image -p noctyra-steganography -p noctyra-compression -p noctyra-keystore -p noctyra-validation --all-targets -- -D warnings
 
   frontend:
     name: Desktop frontend build
