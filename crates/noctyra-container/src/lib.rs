@@ -15,6 +15,9 @@ pub const HEADER_LEN: usize = 4 + 2 + 16 + 24 + 8;
 pub const TAG_LEN: usize = 16;
 pub const MAX_CIPHERTEXT_LEN: usize = 1024 * 1024 * 1024;
 
+mod tree;
+pub use tree::{extract_directory, seal_directory};
+
 #[derive(Debug, thiserror::Error)]
 pub enum ContainerError {
     #[error("archive is truncated or malformed")]
@@ -25,6 +28,14 @@ pub enum ContainerError {
     TooLarge,
     #[error(transparent)]
     Crypto(#[from] CryptoError),
+    #[error("filesystem operation failed: {0}")]
+    Io(String),
+    #[error("directory archive contains an unsafe or invalid path or filesystem object")]
+    InvalidTree,
+    #[error("directory archive contains too many entries")]
+    TooManyEntries,
+    #[error("destination already exists; refusing to merge or overwrite")]
+    DestinationExists,
 }
 
 fn associated_data(ciphertext_len: u64) -> [u8; 14] {
