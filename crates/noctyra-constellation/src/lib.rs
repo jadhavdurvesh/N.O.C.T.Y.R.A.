@@ -663,6 +663,18 @@ mod tests {
         assert!(report.recoverable);
         assert_eq!(recover_archive(refs.iter().copied()).unwrap(), original);
 
+        // Recompute the public frame checksum after tampering. The signed
+        // manifest's per-shard digest must still detect the substitution.
+        let mut forged_shard = shards[0].clone();
+        let last = forged_shard.len() - 1;
+        forged_shard[last] ^= 1;
+        let forged_digest = digest(&forged_shard[RECOVERY_HEADER_LEN..]);
+        forged_shard[72..104].copy_from_slice(&forged_digest);
+        assert_eq!(
+            verify_manifest_shards(&verified, [forged_shard.as_slice()]),
+            Err(ConstellationError::ManifestShardMismatch)
+        );
+
         let other_key = SigningKey::from_bytes(&[8u8; 32]);
         assert_eq!(verify_signed_manifest(&manifest, &other_key.verifying_key().to_bytes()), Err(ConstellationError::UntrustedManifestSigner));
 
