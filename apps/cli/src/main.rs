@@ -502,7 +502,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         let received = valid.len();
         let required = verified.data_shards() as usize;
         let missing: Vec<usize> = seen.iter().enumerate().filter_map(|(i, present)| (!present).then_some(i)).collect();
-        println!("\nTransfer: {}", blake3::Hash::from_bytes(verified.transfer_id()));
+        println!("\nTransfer ID: {}", verified.transfer_id().iter().map(|byte| format!("{byte:02x}")).collect::<String>());
         println!("Valid unique shards: {received}/{total}");
         println!("Rejected or duplicate inputs: {invalid}");
         println!("Recovery threshold: {required}");
