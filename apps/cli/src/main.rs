@@ -188,6 +188,85 @@ fn run() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
+    if command == "constellation-recovery-encode" {
+        if paths.len() < 5 || paths.len() > noctyra_core::MAX_RECOVERY_SHARDS + 4 {
+            return Err("usage: noctyra constellation-recovery-encode <archive.nct> <new-output-directory> <shard-bytes> <parity-shards> <cover-image1> [more-images...]".into());
+        }
+        let archive = Zeroizing::new(read_bounded(Path::new(&paths[0]))?);
+        let destination = Path::new(&paths[1]);
+        if destination.exists() { return Err("output directory already exists; refusing to overwrite".into()); }
+        let shard_size = paths[2].to_string_lossy().parse::<usize>()?;
+        let parity_count = paths[3].to_string_lossy().parse::<usize>()?;
+        let cover_paths = &paths[4..];
+        let mut smallest_capacity = usize::MAX;
+        for path in cover_paths {
+            let image_bytes = Zeroizing::new(read_carrier_file(Path::new(path))?);
+            let carrier = noctyra_core::CarrierImage::load(&image_bytes)?;
+            let capacity = noctyra_core::estimate_carrier_capacity(&carrier).payload_bytes
+                .saturating_sub(noctyra_core::RECOVERY_HEADER_LEN);
+            smallest_capacity = smallest_capacity.min(capacity);
+        }
+        if shard_size == 0 || shard_size > smallest_capacity {
+            return Err(format!("shard size must fit every supplied cover image; maximum available is {smallest_capacity} bytes").into());
+        }
+        let shards = noctyra_core::create_recovery_shards(&archive, shard_size, parity_count)?;
+        if shards.len() > cover_paths.len() {
+            return Err(format!("not enough cover images: {} shards required, {} supplied", shards.len(), cover_paths.len()).into());
+        }
+        let parent = destination.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+        let staging = tempfile::Builder::new().prefix(".noctyra-recovery-").tempdir_in(parent)?;
+        for (index, shard) in shards.iter().enumerate() {
+            let image_bytes = Zeroizing::new(read_carrier_file(Path::new(&cover_paths[index]))?);
+            let mut carrier = noctyra_core::CarrierImage::load(&image_bytes)?;
+            noctyra_core::embed_carrier(&mut carrier, shard)?;
+            let format = carrier.format();
+            let encoded = Zeroizing::new(carrier.encode(format)?);
+            let output = staging.path().join(format!("recovery-{:04}.{}", index + 1, format.extension()));
+            let mut file = File::options().write(true).create_new(true).open(output)?;
+            file.write_all(&encoded)?;
+            file.sync_all()?;
+        }
+        let staging_path = staging.keep();
+        if let Err(error) = fs::rename(&staging_path, destination) {
+            let _ = fs::remove_dir_all(&staging_path);
+            return Err(error.into());
+        }
+        println!("CONSTELLATION recovery set created: {} shards ({} data + {} parity)", shards.len(), shards.len() - parity_count, parity_count);
+        return Ok(());
+    }
+
+    if command == "constellation-recovery" || command == "constellation-recovery-images" {
+        if paths.len() < 2 || paths.len() > noctyra_core::MAX_RECOVERY_SHARDS + 1 {
+            return Err("usage: noctyra constellation-recovery <output-archive.nct> <shard1.ncrs> [more-shards...] (or constellation-recovery-images <output-archive.nct> <carrier1.png> [more-carriers...])".into());
+        }
+        let mut shards = Vec::with_capacity(paths.len() - 1);
+        for path in &paths[1..] {
+            if command == "constellation-recovery-images" {
+                let image_bytes = Zeroizing::new(read_carrier_file(Path::new(path))?);
+                let carrier = noctyra_core::CarrierImage::load(&image_bytes)?;
+                shards.push(Zeroizing::new(noctyra_core::extract_carrier(&carrier)?));
+            } else {
+                shards.push(Zeroizing::new(read_limited(
+                    Path::new(path),
+                    (noctyra_core::MAX_FRAGMENT_DATA_BYTES + noctyra_core::RECOVERY_HEADER_LEN) as u64,
+                    "CONSTELLATION recovery shard"
+                )?));
+            }
+        }
+        let refs: Vec<&[u8]> = shards.iter().map(|shard| shard.as_slice()).collect();
+        let report = noctyra_core::inspect_recovery_shards(refs.iter().copied())?;
+        if !report.recoverable {
+            return Err(format!("not enough shards: received {}, need at least {}", report.received_shards, report.data_shards).into());
+        }
+        let archive = Zeroizing::new(noctyra_core::recover_archive(refs)?);
+        let output = Path::new(&paths[0]);
+        let mut temp = temporary_output(output)?;
+        temp.as_file_mut().write_all(&archive)?;
+        publish(temp, output)?;
+        println!("CONSTELLATION recovery succeeded from {} of {} shards", report.received_shards, report.data_shards as usize + report.parity_shards as usize);
+        return Ok(());
+    }
+
     if command == "constellation-reassemble-images" {
         if paths.len() < 2 || paths.len() > noctyra_core::MAX_FRAGMENT_COUNT + 1 {
             return Err("usage: noctyra constellation-reassemble-images <output-archive.nct> <carrier-image1> [carrier-image2 ...]".into());
@@ -336,7 +415,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                 other => return Err(format!("unsupported NCT directory archive version: {other}").into()),
             }
         }
-        _ => return Err("usage: noctyra encrypt <file> <archive.nct> | decrypt <archive.nct> <file> | encrypt-dir <directory> <archive.nct> | decrypt-dir <archive.nct> <new-directory> | cleanup-staging <parent-directory> | carrier-embed <carrier-image> <encrypted-archive.nct> <output-image> | carrier-extract <carrier-image> <output-archive.nct> | constellation-split <archive.nct> <new-output-directory> [fragment-bytes] | constellation-inspect <fragment-1.ncfr> [more-fragments...] | constellation-inspect-images <carrier-image1> [more-carriers...] | constellation-reassemble <output-archive.nct> <fragment-1.ncfr> [fragment-2.ncfr ...] | constellation-encode <archive.nct> <new-output-directory> <cover-image1> [cover-image2 ...] | constellation-reassemble-images <output-archive.nct> <carrier-image1> [carrier-image2 ...]".into()),
+        _ => return Err("usage: noctyra encrypt <file> <archive.nct> | decrypt <archive.nct> <file> | encrypt-dir <directory> <archive.nct> | decrypt-dir <archive.nct> <new-directory> | cleanup-staging <parent-directory> | carrier-embed <carrier-image> <encrypted-archive.nct> <output-image> | carrier-extract <carrier-image> <output-archive.nct> | constellation-split <archive.nct> <new-output-directory> [fragment-bytes] | constellation-inspect <fragment-1.ncfr> [more-fragments...] | constellation-inspect-images <carrier-image1> [more-carriers...] | constellation-reassemble <output-archive.nct> <fragment-1.ncfr> [fragment-2.ncfr ...] | constellation-encode <archive.nct> <new-output-directory> <cover-image1> [cover-image2 ...] | constellation-reassemble-images <output-archive.nct> <carrier-image1> [carrier-image2 ...] | constellation-recovery-encode <archive.nct> <new-output-directory> <shard-bytes> <parity-shards> <cover-image1> [more-images...] | constellation-recovery <output-archive.nct> <shard1.ncrs> [more-shards...] | constellation-recovery-images <output-archive.nct> <carrier1.png> [more-carriers...]".into()),
     }
 
     println!("Operation completed: {}", output.display());
