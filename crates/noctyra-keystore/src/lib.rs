@@ -26,6 +26,8 @@ pub enum KeyVaultError {
     KeyMismatch,
     #[error("trust registry is malformed or unsupported")]
     MalformedTrustStore,
+    #[error("trusted public key is not a valid Ed25519 key")]
+    InvalidTrustedPublicKey,
     #[error("trusted public key is already registered")]
     DuplicateTrustedKey,
     #[error("trusted public key was not found")]
@@ -185,6 +187,7 @@ pub struct TrustStore { entries: Vec<TrustedKey> }
 impl TrustStore {
     pub fn entries(&self) -> &[TrustedKey] { &self.entries }
     pub fn add(&mut self, public_key: [u8; 32], label: String) -> Result<String, KeyVaultError> {
+        VerifyingKey::from_bytes(&public_key).map_err(|_| KeyVaultError::InvalidTrustedPublicKey)?;
         if label.is_empty() || label.len() > MAX_TRUST_LABEL_BYTES { return Err(KeyVaultError::InvalidTrustLabel); }
         if self.entries.iter().any(|entry| entry.public_key == public_key) { return Err(KeyVaultError::DuplicateTrustedKey); }
         if self.entries.len() >= MAX_TRUSTED_KEYS { return Err(KeyVaultError::TrustStoreFull); }
@@ -226,7 +229,7 @@ fn encode_trust_entries(store: &TrustStore) -> Result<Zeroizing<Vec<u8>>, KeyVau
         data.push(entry.label.len() as u8);
         data.extend_from_slice(entry.label.as_bytes());
     }
-    if data.len() > MAX_TRUST_STORE_BYTES { return Err(KeyVaultError::TrustStoreFull); }
+    if data.len() > MAX_TRUST_STORE_BYTES - TRUST_STORE_HEADER_LEN - 16 { return Err(KeyVaultError::TrustStoreFull); }
     Ok(data)
 }
 
@@ -253,6 +256,7 @@ fn decode_trust_entries(data: &[u8]) -> Result<TrustStore, KeyVaultError> {
         let label = std::str::from_utf8(data.get(cursor..end_label).ok_or(KeyVaultError::MalformedTrustStore)?)
             .map_err(|_| KeyVaultError::MalformedTrustStore)?.to_owned();
         cursor = end_label;
+        VerifyingKey::from_bytes(&public_key).map_err(|_| KeyVaultError::MalformedTrustStore)?;
         if entries.iter().any(|entry| entry.public_key == public_key) { return Err(KeyVaultError::MalformedTrustStore); }
         entries.push(TrustedKey { public_key, label, revoked: status == 1 });
     }
@@ -282,6 +286,7 @@ pub fn open_trust_store(password: &[u8], bytes: &[u8]) -> Result<TrustStore, Key
 }
 
 pub fn save_trust_store(password: &[u8], store: &TrustStore) -> Result<Vec<u8>, KeyVaultError> {
+    if password.is_empty() { return Err(KeyVaultError::Authentication); }
     let plaintext = encode_trust_entries(store)?;
     let encrypted = encrypt(password, &plaintext, &trust_store_aad()).map_err(|_| KeyVaultError::Crypto)?;
     let ciphertext_len = u32::try_from(encrypted.ciphertext.len()).map_err(|_| KeyVaultError::TrustStoreFull)?;
