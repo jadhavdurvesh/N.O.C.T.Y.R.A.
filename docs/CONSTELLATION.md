@@ -170,6 +170,29 @@ cargo run -p noctyra-cli -- trust-rotate .\\trusted-senders.ncts <old-fingerprin
 
 For trusted-manifest recovery, use `constellation-manifest-verify-trusted-recovery` with the encrypted registry and sender fingerprint. The registry password is requested interactively and is never accepted as a command-line argument. These password-encrypted local files are not yet backed by OS keychain or hardware security.
 
+
+## End-to-end send and receive workflow
+
+The CLI now exposes `constellation-send` and `constellation-receive`. The sender encrypts the input file into a temporary NCT archive, creates systematic Reed-Solomon recovery shards, signs the complete shard manifest using an unlocked NCKV identity, embeds each shard into a supplied PNG/BMP cover, and atomically publishes a new package directory. The package contains `manifest.ncmf` and `carrier-0001.png` (or BMP) files. It does not contain the archive password or private signing key.
+
+The recipient unlocks their local NCTS registry, resolves the sender fingerprint to a non-revoked trusted public key, verifies the manifest signature, extracts carrier payloads, checks each shard against the signed manifest, reconstructs the encrypted NCT archive when at least k valid shards are present, and decrypts into a temporary output. The destination is published only after NCT authentication succeeds. The recipient needs the archive password through a separate channel.
+
+Example (PowerShell):
+
+```powershell
+# Sender: package a file using a 4 MiB shard size and 2 parity shards.
+# Supply at least k+r suitable lossless PNG/BMP covers.
+cargo run -p noctyra-cli -- constellation-send .\\report.pdf .\\report-transfer .\\sender.nckv 4194304 2 .\\cover1.png .\\cover2.png .\\cover3.png .\\cover4.png .\\cover5.png .\\cover6.png .\\cover7.png .\\cover8.png .\\cover9.png .\\cover10.png
+
+# Transfer the package directory and manifest to the recipient.
+# Share the archive password separately from the package.
+
+# Recipient: verify against a locally trusted sender fingerprint and recover.
+cargo run -p noctyra-cli -- constellation-receive .\\received-report.pdf .\\report-transfer\\manifest.ncmf .\\trusted-senders.ncts <sender-fingerprint> .\\report-transfer\\carrier-0001.png .\\report-transfer\\carrier-0002.png .\\report-transfer\\carrier-0004.png .\\report-transfer\\carrier-0005.png .\\report-transfer\\carrier-0006.png .\\report-transfer\\carrier-0007.png .\\report-transfer\\carrier-0008.png .\\report-transfer\\carrier-0009.png
+```
+
+The example paths and carrier count are illustrative: use the actual generated carrier set and provide at least k distinct valid shards. Any supplied carrier can be lost, but recovery requires at least k valid shards. A manifest and its carrier set are authenticated to the pinned sender identity; they do not encrypt the transport package themselves. The NCT archive provides confidentiality and integrity. Password sharing is deliberately out-of-band. PNG/BMP carriers are experimental steganographic containers, not guaranteed to be undetectable; image resizing, recompression, filters or lossy conversion can destroy embedded data.
+
 ## Carrier format policy
 PNG is the primary lossless carrier. BMP may be supported as a secondary format. JPEG and other lossy transformations are not supported for reliable carrier preservation in the initial design.
 
