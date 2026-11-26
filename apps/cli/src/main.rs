@@ -106,12 +106,12 @@ fn decrypt_file(input: &Path, output: &Path, password: &[u8]) -> Result<(), Box<
 fn write_new_key_file(path: &Path, bytes: &[u8], private: bool) -> Result<(), Box<dyn Error>> {
     let mut options = fs::OpenOptions::new();
     options.write(true).create_new(true);
-    let mut file = options.open(path)?;
     #[cfg(unix)]
     if private {
-        use std::os::unix::fs::PermissionsExt;
-        file.set_permissions(fs::Permissions::from_mode(0o600))?;
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
     }
+    let mut file = options.open(path)?;
     file.write_all(bytes)?;
     file.sync_all()?;
     Ok(())
