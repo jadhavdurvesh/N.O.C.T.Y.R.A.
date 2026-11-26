@@ -107,16 +107,26 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
         "encrypt-dir" => {
             let secret = password(true)?;
-            let archive = noctyra_core::seal_directory(secret.as_bytes(), input)?;
             let mut temp = temporary_output(output)?;
-            temp.as_file_mut().write_all(&archive)?;
+            noctyra_core::encrypt_directory_stream(secret.as_bytes(), input, temp.as_file_mut())?;
             publish(temp, output)?;
         }
         "decrypt-dir" => {
             if output.exists() { return Err(format!("refusing to merge with or overwrite existing destination: {}", output.display()).into()); }
             let secret = password(false)?;
-            let archive = Zeroizing::new(read_bounded(input)?);
-            noctyra_core::extract_directory(secret.as_bytes(), &archive, output)?;
+            check_regular_file(input)?;
+            let mut archive = File::open(input)?;
+            let mut prefix = [0u8; 6];
+            archive.read_exact(&mut prefix)?;
+            archive.seek(SeekFrom::Start(0))?;
+            match u16::from_le_bytes([prefix[4], prefix[5]]) {
+                2 => noctyra_core::decrypt_directory_stream(secret.as_bytes(), archive, output)?,
+                1 => {
+                    let legacy = Zeroizing::new(read_bounded(input)?);
+                    noctyra_core::extract_directory(secret.as_bytes(), &legacy, output)?;
+                }
+                other => return Err(format!("unsupported NCT directory archive version: {other}").into()),
+            }
         }
         _ => return Err("usage: noctyra encrypt <file> <archive.nct> | decrypt <archive.nct> <file> | encrypt-dir <directory> <archive.nct> | decrypt-dir <archive.nct> <new-directory>".into()),
     }
