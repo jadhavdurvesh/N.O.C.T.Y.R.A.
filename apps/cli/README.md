@@ -43,6 +43,34 @@ cargo run -p noctyra-cli -- carrier-extract .\\carrier.png .\\extracted.nct
 
 The carrier input is limited to 64 MiB, decoded RGBA allocation to 512 MiB, dimensions to 16,384 per side, and payload to 16 MiB. See [NCAR v1 format notes](../../docs/IMAGE_CARRIER.md) for the pixel mapping and frame layout. Lossy image processing can destroy the payload. The codec does not guarantee concealment or resistance to steganalysis.
 
+## CONSTELLATION multi-image transport
+
+Split an encrypted NCT archive into bounded NCFR fragment files:
+
+```powershell
+cargo run -p noctyra-cli -- constellation-split .\\archive.nct .\\fragments
+```
+
+Or encode the archive into multiple supplied PNG/BMP cover images. The tool estimates the smallest available capacity, selects a safe fragment size, and writes a new output directory:
+
+```powershell
+cargo run -p noctyra-cli -- constellation-encode .\\archive.nct .\\carrier-set .\\cover1.png .\\cover2.png .\\cover3.png
+```
+
+Reassemble from raw fragment files (order does not matter):
+
+```powershell
+cargo run -p noctyra-cli -- constellation-reassemble .\\recovered.nct .\\fragments\\fragment-0002.ncfr .\\fragments\\fragment-0000.ncfr .\\fragments\\fragment-0001.ncfr
+```
+
+Or reassemble directly from carrier images:
+
+```powershell
+cargo run -p noctyra-cli -- constellation-reassemble-images .\\recovered.nct .\\carrier-set\\carrier-0001.png .\\carrier-set\\carrier-0002.png .\\carrier-set\\carrier-0003.png
+```
+
+NCFR v1 uses a random transfer ID, bounded fragment indexes/counts, per-fragment BLAKE3 checksums and a complete archive digest. These hashes detect corruption but do not authenticate the sender. NCT AEAD remains the confidentiality and authenticity boundary. Current limits: 1 GiB archive, 256 fragments, 4 MiB default fragment data, 8 MiB maximum fragment data.
+
 ## Current limitations
 - Legacy NMF1 directory archives remain buffered; new directory archives use NMF2 streaming.
 - No image carriers or CONSTELLATION packet splitting yet.
