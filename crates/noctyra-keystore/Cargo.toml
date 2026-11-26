@@ -1,0 +1,13 @@
+[package]
+name = "noctyra-keystore"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+noctyra-crypto = { path = "../noctyra-crypto" }
+ed25519-dalek.workspace = true
+zeroize.workspace = true
+thiserror.workspace = true
+blake3.workspace = true
