@@ -18,6 +18,7 @@ NOCTYRA is a private cross-platform personal information-protection project. It 
 - [Architecture](docs/ARCHITECTURE.md)
 - [NCT container format draft](docs/NCT_FORMAT.md)
 - [CONSTELLATION protocol draft](docs/CONSTELLATION.md)
+- [Image carrier format draft](docs/IMAGE_CARRIER.md)
 - [Project identity](docs/PROJECT_IDENTITY.md)
 - [Development roadmap](docs/ROADMAP.md)
 
