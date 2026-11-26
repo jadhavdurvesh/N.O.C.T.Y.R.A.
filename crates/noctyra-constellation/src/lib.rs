@@ -445,7 +445,7 @@ where I: IntoIterator<Item = &'a [u8]> {
         &first.transfer_id, first.archive_len, first.data_shards,
         first.parity_shards, first.shard_size, &first.archive_digest,
     );
-    let mut signed_message = b"NOCTYRA-CONSTELLATION-MANIFEST-V1\\0".to_vec();
+    let mut signed_message = b"NOCTYRA-CONSTELLATION-MANIFEST-V1\0".to_vec();
     signed_message.extend_from_slice(&body);
     let signature = signing_key.sign(&signed_message);
     let mut output = body;
@@ -655,6 +655,26 @@ mod tests {
         let last = corrupt.len() - 1;
         corrupt[last] ^= 1;
         assert_eq!(parse_recovery_shard(&corrupt), Err(ConstellationError::FragmentIntegrity));
+    }
+
+    #[test]
+    fn signed_manifest_pins_signer_and_authenticates_recovery_set() {
+        let original = archive();
+        let shards = create_recovery_shards_with_id(&original, 1024, 2, [51u8; 16]).unwrap();
+        let signing_key = SigningKey::from_bytes(&[7u8; 32]);
+        let refs: Vec<&[u8]> = shards.iter().map(Vec::as_slice).collect();
+        let manifest = create_signed_manifest_for_shards(refs.iter().copied(), &signing_key).unwrap();
+        let verified = verify_signed_manifest(&manifest, &signing_key.verifying_key().to_bytes()).unwrap();
+        let report = verify_manifest_shards(&verified, refs.iter().copied()).unwrap();
+        assert!(report.recoverable);
+        assert_eq!(recover_archive(refs.iter().copied()).unwrap(), original);
+
+        let other_key = SigningKey::from_bytes(&[8u8; 32]);
+        assert_eq!(verify_signed_manifest(&manifest, &other_key.verifying_key().to_bytes()), Err(ConstellationError::UntrustedManifestSigner));
+
+        let mut tampered = manifest.clone();
+        tampered[38] ^= 1;
+        assert_eq!(verify_signed_manifest(&tampered, &signing_key.verifying_key().to_bytes()), Err(ConstellationError::InvalidManifestSignature));
     }
 
     #[test]
