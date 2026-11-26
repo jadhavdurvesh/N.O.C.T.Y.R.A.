@@ -57,3 +57,10 @@ doc = false
 bench = false
 
 [workspace]
+
+[[bin]]
+name = "constellation_manifest"
+path = "fuzz_targets/constellation_manifest.rs"
+test = false
+doc = false
+bench = false
