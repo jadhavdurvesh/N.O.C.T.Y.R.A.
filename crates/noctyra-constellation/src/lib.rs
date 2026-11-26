@@ -72,43 +72,73 @@ fn validate_nct_archive(archive: &[u8]) -> Result<(), ConstellationError> {
     Ok(())
 }
 
-/// Split a complete NCT archive into independently framed transport fragments.
-pub fn fragment_archive(archive: &[u8], fragment_bytes: usize) -> Result<Vec<Vec<u8>>, ConstellationError> {
-    let mut transfer_id = [0u8; 16];
-    OsRng.try_fill_bytes(&mut transfer_id).map_err(|_| ConstellationError::RandomFailure)?;
-    fragment_archive_with_id(archive, fragment_bytes, transfer_id)
+/// A bounded-memory plan for producing fragments one at a time.
+pub struct FragmentPlan<'a> {
+    archive: &'a [u8],
+    transfer_id: [u8; 16],
+    fragment_bytes: usize,
+    archive_digest: [u8; 32],
+    count: usize,
 }
 
-/// Deterministic-ID variant for test vectors and reproducible protocol fixtures.
+impl<'a> FragmentPlan<'a> {
+    pub fn new(archive: &'a [u8], fragment_bytes: usize) -> Result<Self, ConstellationError> {
+        let mut transfer_id = [0u8; 16];
+        OsRng.try_fill_bytes(&mut transfer_id).map_err(|_| ConstellationError::RandomFailure)?;
+        Self::with_id(archive, fragment_bytes, transfer_id)
+    }
+
+    pub fn with_id(archive: &'a [u8], fragment_bytes: usize, transfer_id: [u8; 16]) -> Result<Self, ConstellationError> {
+        validate_nct_archive(archive)?;
+        if archive.len() > MAX_ARCHIVE_BYTES { return Err(ConstellationError::ArchiveTooLarge); }
+        if fragment_bytes == 0 || fragment_bytes > MAX_FRAGMENT_DATA_BYTES {
+            return Err(ConstellationError::InvalidFragmentSize);
+        }
+        let count = archive.len().div_ceil(fragment_bytes);
+        if count == 0 || count > MAX_FRAGMENT_COUNT { return Err(ConstellationError::TooManyFragments); }
+        Ok(Self { archive, transfer_id, fragment_bytes, archive_digest: digest(archive), count })
+    }
+
+    pub fn count(&self) -> usize { self.count }
+    pub fn transfer_id(&self) -> [u8; 16] { self.transfer_id }
+
+    /// Encode one fragment. Memory use is proportional to a single fragment.
+    pub fn encode(&self, index: usize) -> Result<Vec<u8>, ConstellationError> {
+        if index >= self.count { return Err(ConstellationError::MalformedFragment); }
+        let start = index.checked_mul(self.fragment_bytes).ok_or(ConstellationError::MalformedFragment)?;
+        let end = start.saturating_add(self.fragment_bytes).min(self.archive.len());
+        let data = &self.archive[start..end];
+        let mut bytes = Vec::with_capacity(FRAGMENT_HEADER_LEN + data.len());
+        bytes.extend_from_slice(FRAGMENT_MAGIC);
+        bytes.extend_from_slice(&PROTOCOL_VERSION.to_le_bytes());
+        bytes.extend_from_slice(&self.transfer_id);
+        bytes.extend_from_slice(&(self.archive.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(&(index as u32).to_le_bytes());
+        bytes.extend_from_slice(&(self.count as u32).to_le_bytes());
+        bytes.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&self.archive_digest);
+        bytes.extend_from_slice(&digest(data));
+        bytes.extend_from_slice(data);
+        Ok(bytes)
+    }
+}
+
+/// Split a complete NCT archive into independently framed transport fragments.
+/// Convenience API; large transfers should use FragmentPlan and write each part
+/// as it is produced to avoid retaining all fragment copies in memory.
+pub fn fragment_archive(archive: &[u8], fragment_bytes: usize) -> Result<Vec<Vec<u8>>, ConstellationError> {
+    let plan = FragmentPlan::new(archive, fragment_bytes)?;
+    (0..plan.count()).map(|index| plan.encode(index)).collect()
+}
+
+/// Deterministic-ID convenience API for test vectors and reproducible fixtures.
 pub fn fragment_archive_with_id(
     archive: &[u8],
     fragment_bytes: usize,
     transfer_id: [u8; 16],
 ) -> Result<Vec<Vec<u8>>, ConstellationError> {
-    validate_nct_archive(archive)?;
-    if archive.len() > MAX_ARCHIVE_BYTES { return Err(ConstellationError::ArchiveTooLarge); }
-    if fragment_bytes == 0 || fragment_bytes > MAX_FRAGMENT_DATA_BYTES {
-        return Err(ConstellationError::InvalidFragmentSize);
-    }
-    let count = archive.len().div_ceil(fragment_bytes);
-    if count == 0 || count > MAX_FRAGMENT_COUNT { return Err(ConstellationError::TooManyFragments); }
-    let archive_digest = digest(archive);
-    let mut result = Vec::with_capacity(count);
-    for (index, data) in archive.chunks(fragment_bytes).enumerate() {
-        let mut bytes = Vec::with_capacity(FRAGMENT_HEADER_LEN + data.len());
-        bytes.extend_from_slice(FRAGMENT_MAGIC);
-        bytes.extend_from_slice(&PROTOCOL_VERSION.to_le_bytes());
-        bytes.extend_from_slice(&transfer_id);
-        bytes.extend_from_slice(&(archive.len() as u64).to_le_bytes());
-        bytes.extend_from_slice(&(index as u32).to_le_bytes());
-        bytes.extend_from_slice(&(count as u32).to_le_bytes());
-        bytes.extend_from_slice(&(data.len() as u32).to_le_bytes());
-        bytes.extend_from_slice(&archive_digest);
-        bytes.extend_from_slice(&digest(data));
-        bytes.extend_from_slice(data);
-        result.push(bytes);
-    }
-    Ok(result)
+    let plan = FragmentPlan::with_id(archive, fragment_bytes, transfer_id)?;
+    (0..plan.count()).map(|index| plan.encode(index)).collect()
 }
 
 /// Parse and validate one untrusted fragment before retaining its payload.
