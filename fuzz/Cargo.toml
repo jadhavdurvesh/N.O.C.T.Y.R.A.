@@ -1,0 +1,21 @@
+[package]
+name = "noctyra-container-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+noctyra-container = { path = "../crates/noctyra-container" }
+
+[[bin]]
+name = "nmf2_manifest"
+path = "fuzz_targets/nmf2_manifest.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
