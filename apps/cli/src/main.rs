@@ -89,6 +89,12 @@ fn run() -> Result<(), Box<dyn Error>> {
     let mut args = env::args_os().skip(1);
     let command = args.next().ok_or("missing command")?;
     let input = args.next().ok_or("missing input path")?;
+    if command == "cleanup-staging" {
+        if args.next().is_some() { return Err("cleanup-staging accepts exactly one parent directory".into()); }
+        let removed = noctyra_core::cleanup_stale_staging(Path::new(&input))?;
+        println!("Removed {removed} stale NOCTYRA staging director(y/ies).");
+        return Ok(());
+    }
     let output = args.next().ok_or("missing output path")?;
     if args.next().is_some() { return Err("too many arguments".into()); }
 
@@ -128,7 +134,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                 other => return Err(format!("unsupported NCT directory archive version: {other}").into()),
             }
         }
-        _ => return Err("usage: noctyra encrypt <file> <archive.nct> | decrypt <archive.nct> <file> | encrypt-dir <directory> <archive.nct> | decrypt-dir <archive.nct> <new-directory>".into()),
+        _ => return Err("usage: noctyra encrypt <file> <archive.nct> | decrypt <archive.nct> <file> | encrypt-dir <directory> <archive.nct> | decrypt-dir <archive.nct> <new-directory> | cleanup-staging <parent-directory>".into()),
     }
 
     println!("Operation completed: {}", output.display());
