@@ -97,7 +97,8 @@
 - [ ] Stream carrier reads into authenticated scratch storage instead of loading all carrier frames into memory
 - [ ] Add scratch-space quotas, truncation and crash cleanup guarantees
 - [x] Add per-carrier diagnostics and a carrier-capacity/recovery-set planning report
-- [ ] Add crash-injection, disk-full and interrupted-write recovery tests
+- [x] Add simulated scratch-storage exhaustion and partial-write failure regression test
+- [ ] Add process-crash/power-loss injection and end-to-end interrupted-transfer restart tests
 - [ ] Add cross-platform filesystem publication and permission tests
 - [ ] Run full workspace CI and resolve all failures
 - [ ] Independent security review of recovery and trust-state handling
