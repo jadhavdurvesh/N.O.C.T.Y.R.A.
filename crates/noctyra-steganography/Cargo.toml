@@ -9,3 +9,5 @@ publish = false
 noctyra-image = { path = "../noctyra-image" }
 noctyra-container = { path = "../noctyra-container" }
 thiserror.workspace = true
+blake3.workspace = true
+noctyra-validation = { path = "../noctyra-validation" }
