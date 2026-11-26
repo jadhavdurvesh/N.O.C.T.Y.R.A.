@@ -24,6 +24,19 @@ NOCTYRA is a private cross-platform personal information-protection project. It 
 ## Desktop application
 The initial Tauri + React desktop shell is in `apps/desktop`. Start it with `npm install` followed by `npm run tauri dev` from that directory. See [desktop instructions](apps/desktop/README.md).
 
+## Directory archives
+
+NOCTYRA now has an initial encrypted directory-tree archive implementation. It preserves nested files and empty directories, rejects symbolic links and special filesystem objects, validates archive paths, and refuses to merge into an existing extraction destination.
+
+CLI:
+
+```powershell
+cargo run -p noctyra-cli -- encrypt-dir .\\my-folder .\\folder.nct
+cargo run -p noctyra-cli -- decrypt-dir .\\folder.nct .\\restored-folder
+```
+
+The desktop interface also has Encrypt folder and Recover folder operations. The initial tree format buffers the directory payload in memory and is limited to 1 GiB. It is not yet a streaming archive implementation, has not been independently audited, and should be tested only with disposable copies until verification is complete.
+
 ## First usable interface — CLI
 From the repository root, run:
 
