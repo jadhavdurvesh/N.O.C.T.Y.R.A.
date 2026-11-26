@@ -7,3 +7,6 @@ publish = false
 
 [dependencies]
 thiserror.workspace = true
+
+noctyra-crypto = { path = "../noctyra-crypto" }
+noctyra-container = { path = "../noctyra-container" }
