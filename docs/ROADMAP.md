@@ -22,9 +22,14 @@
 - [x] Reject symlinks, special files, traversal paths and platform device names
 - [x] Wrong-password and directory round-trip test cases
 - [ ] Independent cross-platform archive review
-- [ ] Streaming archive creation and extraction
-- [ ] Bounded chunking and authenticated finalization
-- [ ] Atomic output and overwrite protection
+- [x] NCT v2 streaming single-file encryption and decryption API
+- [x] Independent Zstandard-compressed 1 MiB chunks
+- [x] Per-chunk AEAD with sequential nonce derivation
+- [x] Authenticated finalization record with total length and BLAKE3 digest
+- [x] CLI and desktop temporary-output publication for single-file operations
+- [ ] Streaming directory serialization and extraction
+- [ ] Bounded chunking and authenticated finalization for directory trees
+- [ ] Cross-platform crash-safe output review
 
 ## M3 — Image laboratory
 - [ ] PNG/BMP input validation and metadata policy
