@@ -366,6 +366,16 @@ pub struct SignedManifest {
     pub signature: [u8; 64],
 }
 
+/// A manifest whose Ed25519 signature and signer pin have been verified.
+/// Its inner fields cannot be constructed or mutated by external callers.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VerifiedManifest(SignedManifest);
+
+impl VerifiedManifest {
+    pub fn signer_public_key(&self) -> [u8; 32] { self.0.signer_public_key }
+    pub fn transfer_id(&self) -> [u8; 16] { self.0.transfer_id }
+}
+
 fn manifest_header(
     transfer_id: &[u8; 16], archive_len: u64, data_shards: u16,
     parity_shards: u16, shard_size: u32, archive_digest: &[u8; 32],
@@ -448,7 +458,7 @@ pub fn parse_signed_manifest(bytes: &[u8]) -> Result<SignedManifest, Constellati
 }
 
 /// Verify the manifest signature and pin it to an independently trusted key.
-pub fn verify_signed_manifest(bytes: &[u8], trusted_public_key: &[u8; 32]) -> Result<SignedManifest, ConstellationError> {
+pub fn verify_signed_manifest(bytes: &[u8], trusted_public_key: &[u8; 32]) -> Result<VerifiedManifest, ConstellationError> {
     let manifest = parse_signed_manifest(bytes)?;
     if &manifest.signer_public_key != trusted_public_key { return Err(ConstellationError::UntrustedManifestSigner); }
     let key = VerifyingKey::from_bytes(&manifest.signer_public_key).map_err(|_| ConstellationError::MalformedManifest)?;
@@ -457,12 +467,13 @@ pub fn verify_signed_manifest(bytes: &[u8], trusted_public_key: &[u8; 32]) -> Re
     let mut signed_message = b"NOCTYRA-CONSTELLATION-MANIFEST-V1\0".to_vec();
     signed_message.extend_from_slice(&bytes[..body_len]);
     key.verify(&signed_message, &signature).map_err(|_| ConstellationError::InvalidManifestSignature)?;
-    Ok(manifest)
+    Ok(VerifiedManifest(manifest))
 }
 
 /// Ensure every supplied shard belongs to the exact signed set.
-pub fn verify_manifest_shards<'a, I>(manifest: &SignedManifest, inputs: I) -> Result<RecoveryReport, ConstellationError>
+pub fn verify_manifest_shards<'a, I>(verified: &VerifiedManifest, inputs: I) -> Result<RecoveryReport, ConstellationError>
 where I: IntoIterator<Item = &'a [u8]> {
+    let manifest = &verified.0;
     let inputs: Vec<&[u8]> = inputs.into_iter().collect();
     let _ = inspect_recovery_shards(inputs.iter().copied())?;
     let mut seen = vec![false; manifest.data_shards as usize + manifest.parity_shards as usize];
