@@ -284,6 +284,7 @@ fn validate_manifest<R: Read + Seek>(file: &mut R) -> Result<Vec<ExtractEntry>, 
     let mut entries = Vec::with_capacity(count);
     let mut names = HashSet::with_capacity(count);
     let mut kinds = HashMap::with_capacity(count);
+    let mut previous_path: Option<String> = None;
     let mut total_bytes = 0u64;
     let mut total_path_bytes = 0usize;
 
@@ -308,6 +309,10 @@ fn validate_manifest<R: Read + Seek>(file: &mut R) -> Result<Vec<ExtractEntry>, 
         file.read_exact(&mut path_bytes).map_err(|_| ContainerError::Malformed)?;
         let path = String::from_utf8(path_bytes).map_err(|_| ContainerError::InvalidTree)?;
         validate_archive_path(&path)?;
+        if previous_path.as_ref().is_some_and(|previous| previous >= &path) {
+            return Err(ContainerError::InvalidTree);
+        }
+        previous_path = Some(path.clone());
         let folded = path.to_lowercase();
         if !names.insert(folded.clone()) { return Err(ContainerError::InvalidTree); }
         kinds.insert(folded, kind);
