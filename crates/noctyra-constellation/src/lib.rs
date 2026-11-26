@@ -682,6 +682,11 @@ mod tests {
         let refs: Vec<&[u8]> = shards.iter().map(Vec::as_slice).collect();
         let manifest = create_signed_manifest_for_shards(refs.iter().copied(), &signing_key).unwrap();
         let verified = verify_signed_manifest(&manifest, &signing_key.verifying_key().to_bytes()).unwrap();
+        assert_eq!(verify_manifest_shard(&verified, &shards[0]).unwrap(), 0);
+        let mut damaged_candidate = shards[0].clone();
+        let last_byte = damaged_candidate.len() - 1;
+        damaged_candidate[last_byte] ^= 1;
+        assert!(verify_manifest_shard(&verified, &damaged_candidate).is_err());
         let report = verify_manifest_shards(&verified, refs.iter().copied()).unwrap();
         assert!(report.recoverable);
         assert_eq!(recover_archive(refs.iter().copied()).unwrap(), original);
