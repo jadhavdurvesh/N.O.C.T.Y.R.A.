@@ -730,6 +730,31 @@ mod tests {
     }
 
     #[test]
+    fn bounded_stripe_writer_reconstructs_with_missing_shards() {
+        let original = archive();
+        let shards = create_recovery_shards_with_id(&original, 1024, 3, [61u8; 16]).unwrap();
+        let selected: Vec<&[u8]> = shards.iter().enumerate()
+            .filter(|(index, _)| !matches!(index, 0 | 3 | 12))
+            .map(|(_, shard)| shard.as_slice()).collect();
+        let mut scratch = std::io::Cursor::new(Vec::new());
+        recover_archive_to_writer(selected, &mut scratch).unwrap();
+        assert_eq!(scratch.into_inner(), original);
+    }
+
+    #[test]
+    fn bounded_stripe_writer_rejects_invalid_reed_solomon_codeword() {
+        let original = archive();
+        let mut shards = create_recovery_shards_with_id(&original, 1024, 2, [62u8; 16]).unwrap();
+        let last = shards[0].len() - 1;
+        shards[0][last] ^= 0x40;
+        let new_digest = digest(&shards[0][RECOVERY_HEADER_LEN..]);
+        shards[0][72..104].copy_from_slice(&new_digest);
+        let mut scratch = std::io::Cursor::new(Vec::new());
+        let refs: Vec<&[u8]> = shards.iter().map(Vec::as_slice).collect();
+        assert_eq!(recover_archive_to_writer(refs, &mut scratch), Err(ConstellationError::RecoveryFailed));
+    }
+
+    #[test]
     fn signed_manifest_pins_signer_and_authenticates_recovery_set() {
         let original = archive();
         let shards = create_recovery_shards_with_id(&original, 1024, 2, [51u8; 16]).unwrap();
