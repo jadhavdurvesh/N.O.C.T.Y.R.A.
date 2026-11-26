@@ -1,0 +1,12 @@
+[package]
+name = "noctyra-recovery"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+noctyra-container = { path = "../noctyra-container" }
+noctyra-constellation = { path = "../noctyra-constellation" }
+noctyra-validation = { path = "../noctyra-validation" }
+thiserror.workspace = true
