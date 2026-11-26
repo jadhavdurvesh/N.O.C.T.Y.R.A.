@@ -10,3 +10,5 @@ noctyra-container = { path = "../noctyra-container" }
 noctyra-constellation = { path = "../noctyra-constellation" }
 noctyra-validation = { path = "../noctyra-validation" }
 thiserror.workspace = true
+
+blake3.workspace = true
