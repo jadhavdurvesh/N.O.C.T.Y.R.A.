@@ -67,3 +67,61 @@ footer i{font-style:normal;color:#769bb1;padding:0 4px}
 .spinner{width:15px;height:15px;border:2px solid #71818a;border-top-color:#101b24;border-radius:50%;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media(max-width:1050px){.content{padding:40px 26px 24px}.topbar{padding:0 28px}.status-strip{gap:13px;font-size:8px}}
+
+
+/* Desktop application workspace */
+body{min-width:760px}
+.app-shell{display:flex;min-height:100vh}
+.sidebar{width:246px;flex:0 0 246px;border-right:1px solid #1b2732;background:#090e14;display:flex;flex-direction:column;padding:25px 16px 18px}
+.sidebar .brand-mark{margin:3px 0 38px 10px}
+.sidebar-caption{font:9px 'DM Mono',monospace;letter-spacing:1.8px;color:#536879;padding:0 11px 13px}
+.sidebar nav{display:grid;gap:7px}
+.nav-item{display:flex;align-items:center;gap:12px;text-align:left;padding:13px 11px;border:1px solid transparent;background:transparent;color:#8395a4;min-width:0}
+.nav-item b{display:block;font-size:11px;font-weight:600;color:#c3ced8}
+.nav-item small{display:block;font-size:9px;color:#667b8c;margin-top:4px}
+.nav-item.selected{border-color:#2b4659;background:linear-gradient(100deg,#142635,#0e1821);box-shadow:inset 2px 0 #80b7d2;color:#9bc9e0}
+.nav-item.selected b{color:#e1edf5}
+.nav-item:hover:not(.selected){background:#101923}
+.sidebar-bottom{margin-top:auto;padding:14px 10px 2px;border-top:1px solid #1b2732;color:#83c7a3;font:9px 'DM Mono',monospace;letter-spacing:1px}
+.sidebar-bottom .status-dot{margin-right:8px}
+.sidebar-bottom small{display:block;color:#526474;margin:10px 0 0 14px;font-size:8px}
+.app-shell .workspace{min-width:0}
+.app-shell .content{max-width:1160px;padding-top:45px}
+.workflow-grid{display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-top:23px}
+.workflow-panel{min-width:0;border:1px solid #2a3b49;background:#0b131c;padding:20px}
+.workflow-icon{width:36px;height:36px;border:1px solid #355267;color:#8dbbd3;display:grid;place-items:center;margin-bottom:15px}
+.workflow-panel h3{font-size:14px;margin:0 0 7px;color:#e0e8ef}
+.workflow-panel>p,.panel-intro{font-size:10px;line-height:1.65;color:#80909d;min-height:34px;margin:0 0 20px}
+.workflow-panel .field{margin-top:15px}
+.workflow-panel .execute{margin-top:18px}
+.secondary-action{background:#182a37;color:#c6dce8;border:1px solid #365267}
+.secondary-action:hover:not(:disabled){background:#223b4d}
+.input-control select{border:0;outline:0;background:transparent;color:#dce7ee;width:100%;font-size:11px}
+.input-control select option{background:#101923;color:#e8edf4}
+.recovery-key-banner{display:flex;align-items:center;gap:14px;padding:16px;border:1px solid #2d4658;background:#0b151e;color:#8fbad1;margin:20px 0 14px}
+.recovery-key-banner>div{flex:1;min-width:0}
+.recovery-key-banner b{display:block;font-size:11px;color:#dce7ee}
+.recovery-key-banner small{display:block;font-size:9px;color:#7f91a0;margin-top:5px;overflow-wrap:anywhere}
+.divider-line{height:1px;background:#263541;margin:25px 0}
+.button-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.button-row .execute{margin-top:16px}
+.panel-intro{min-height:0;margin-top:18px;max-width:720px}
+.app-shell .notice{margin-top:20px}
+.app-shell .result{margin-top:15px}
+@media(max-width:1050px){
+ .sidebar{width:205px;flex-basis:205px;padding-left:10px;padding-right:10px}
+ .app-shell .content{padding:35px 20px 24px}
+ .workflow-grid{grid-template-columns:1fr}
+ .mode-switch-four{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .top-meta{gap:12px}
+}
+@media(max-width:780px){
+ body{min-width:680px}
+ .sidebar{width:176px;flex-basis:176px}
+ .nav-item{padding:10px 7px;gap:8px}
+ .nav-item b{font-size:10px}
+ .topbar{padding:0 18px}
+ .version{display:none}
+ .app-shell .content{padding-left:15px;padding-right:15px}
+ .button-row{grid-template-columns:1fr}
+}
