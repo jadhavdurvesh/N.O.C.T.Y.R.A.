@@ -8,13 +8,15 @@ NOCTYRA is an early-stage private project. It is not yet audited and must not be
 - Generate keys, salts, and nonces using an operating-system CSPRNG.
 - Never reuse an AEAD nonce with the same key.
 - Authenticate format metadata and chunk identity.
-- Enforce strict input, decompression, image-dimension, and archive-size limits.
+- Enforce strict input, decompression, image-dimension, decoded-allocation, and archive-size limits.
+- Treat image-carrier checksums as corruption detection, never as authentication or encryption.
+- Never promise steganographic undetectability; image carriers are optional and experimental.
 - Avoid logging passwords, keys, plaintext filenames, or decrypted data.
 - Do not write partially decrypted output to the final destination.
 - Never automatically delete or overwrite source files.
 - Treat interrupted extraction staging as recoverable data; cleanup must require an explicit user action, recognize only application-created markers, and avoid active operations.
 - Review dependencies and commit Cargo.lock for applications.
-- Fuzz untrusted parsers and image/container decoders. The NMF2 manifest has a cargo-fuzz target under `fuzz/`.
+- Fuzz untrusted parsers and image/container decoders. The NMF2 manifest and PNG/BMP image/carrier parsers have cargo-fuzz targets under `fuzz/`.
 
 ## Reporting
 
