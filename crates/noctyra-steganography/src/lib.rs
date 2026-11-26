@@ -109,7 +109,7 @@ pub fn extract(carrier: &CarrierImage) -> Result<Vec<u8>, CarrierCodecError> {
     let mut payload = Vec::with_capacity(length);
     for index in HEADER_LEN..total { payload.push(read_byte(raw, index)?); }
     let digest = Hasher::new().update(&payload).finalize();
-    if digest.as_bytes() != &header[13..45] { return Err(CarrierCodecError::Integrity); }
+    if &digest.as_bytes()[..] != &header[13..45] { return Err(CarrierCodecError::Integrity); }
     Ok(payload)
 }
 
