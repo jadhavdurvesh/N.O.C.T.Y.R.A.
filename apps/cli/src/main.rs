@@ -6,6 +6,8 @@ use std::{
     path::Path,
 };
 use zeroize::Zeroizing;
+use ed25519_dalek::SigningKey;
+use rand_core::{OsRng, RngCore};
 
 const MAX_INPUT_BYTES: u64 = 1024 * 1024 * 1024;
 
@@ -101,11 +103,86 @@ fn decrypt_file(input: &Path, output: &Path, password: &[u8]) -> Result<(), Box<
     publish(temp, output)
 }
 
+fn write_new_key_file(path: &Path, bytes: &[u8], private: bool) -> Result<(), Box<dyn Error>> {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    let mut file = options.open(path)?;
+    #[cfg(unix)]
+    if private {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(fs::Permissions::from_mode(0o600))?;
+    }
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    Ok(())
+}
+
 fn run() -> Result<(), Box<dyn Error>> {
     let mut args = env::args_os().skip(1);
     let command = args.next().ok_or("missing command")?;
     let command = command.to_string_lossy().into_owned();
     let paths: Vec<_> = args.collect();
+
+    if command == "constellation-keygen" {
+        if paths.len() != 2 { return Err("usage: noctyra constellation-keygen <private-key-file> <public-key-file>".into()); }
+        let private_path = Path::new(&paths[0]);
+        let public_path = Path::new(&paths[1]);
+        if private_path == public_path { return Err("private and public key paths must be different".into()); }
+        let mut secret = Zeroizing::new([0u8; 32]);
+        OsRng.try_fill_bytes(&mut *secret).map_err(|_| "operating-system random generator failed")?;
+        let signing_key = SigningKey::from_bytes(&secret);
+        let public_key = signing_key.verifying_key().to_bytes();
+        write_new_key_file(private_path, &secret[..], true)?;
+        if let Err(error) = write_new_key_file(public_path, &public_key, false) {
+            return Err(format!("public key could not be written; private key was created at {}: {error}", private_path.display()).into());
+        }
+        println!("Ed25519 keypair created. Keep the private key offline and share the public key through an independently trusted channel.");
+        return Ok(());
+    }
+
+    if command == "constellation-manifest-create" {
+        if paths.len() < 3 { return Err("usage: noctyra constellation-manifest-create <shard1.ncrs> [more-shards...] <private-key-file> <manifest.ncmf>".into()); }
+        let private_path = Path::new(&paths[paths.len() - 2]);
+        let output = Path::new(&paths[paths.len() - 1]);
+        let key_bytes = Zeroizing::new(read_limited(private_path, 32, "Ed25519 private key")?);
+        let secret: [u8; 32] = key_bytes.as_slice().try_into().map_err(|_| "Ed25519 private key must be exactly 32 raw bytes")?;
+        let signing_key = SigningKey::from_bytes(&secret);
+        let mut shards = Vec::with_capacity(paths.len() - 2);
+        for path in &paths[..paths.len() - 2] {
+            shards.push(Zeroizing::new(read_limited(Path::new(path), (noctyra_core::MAX_FRAGMENT_DATA_BYTES + noctyra_core::RECOVERY_HEADER_LEN) as u64, "recovery shard")?));
+        }
+        let refs: Vec<&[u8]> = shards.iter().map(|shard| shard.as_slice()).collect();
+        let manifest = Zeroizing::new(noctyra_core::create_signed_manifest_for_shards(refs, &signing_key)?);
+        let mut temp = temporary_output(output)?;
+        temp.as_file_mut().write_all(&manifest)?;
+        publish(temp, output)?;
+        println!("Signed CONSTELLATION manifest created: {}", output.display());
+        return Ok(());
+    }
+
+    if command == "constellation-manifest-verify-recovery" {
+        if paths.len() < 4 { return Err("usage: noctyra constellation-manifest-verify-recovery <output-archive.nct> <manifest.ncmf> <trusted-public-key-file> <shard1.ncrs> [more-shards...]".into()); }
+        let manifest_bytes = Zeroizing::new(read_limited(Path::new(&paths[1]), 1024, "signed manifest")?);
+        let public_bytes = Zeroizing::new(read_limited(Path::new(&paths[2]), 32, "trusted Ed25519 public key")?);
+        let trusted_key: [u8; 32] = public_bytes.as_slice().try_into().map_err(|_| "trusted Ed25519 public key must be exactly 32 raw bytes")?;
+        let manifest = noctyra_core::verify_signed_manifest(&manifest_bytes, &trusted_key)?;
+        let mut shards = Vec::with_capacity(paths.len() - 3);
+        for path in &paths[3..] {
+            shards.push(Zeroizing::new(read_limited(Path::new(path), (noctyra_core::MAX_FRAGMENT_DATA_BYTES + noctyra_core::RECOVERY_HEADER_LEN) as u64, "recovery shard")?));
+        }
+        let refs: Vec<&[u8]> = shards.iter().map(|shard| shard.as_slice()).collect();
+        let report = noctyra_core::verify_manifest_shards(&manifest, refs.iter().copied())?;
+        if !report.recoverable {
+            return Err(format!("signed set is authentic but incomplete: received {}, need at least {}", report.received_shards, report.data_shards).into());
+        }
+        let archive = Zeroizing::new(noctyra_core::recover_archive(refs)?);
+        let output = Path::new(&paths[0]);
+        let mut temp = temporary_output(output)?;
+        temp.as_file_mut().write_all(&archive)?;
+        publish(temp, output)?;
+        println!("Authenticated recovery succeeded. Signer key is pinned to the supplied trusted public key; recovered archive: {}", output.display());
+        return Ok(());
+    }
 
     if command == "cleanup-staging" {
         if paths.len() != 1 { return Err("usage: noctyra cleanup-staging <parent-directory>".into()); }
@@ -442,7 +519,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                 other => return Err(format!("unsupported NCT directory archive version: {other}").into()),
             }
         }
-        _ => return Err("usage: noctyra encrypt <file> <archive.nct> | decrypt <archive.nct> <file> | encrypt-dir <directory> <archive.nct> | decrypt-dir <archive.nct> <new-directory> | cleanup-staging <parent-directory> | carrier-embed <carrier-image> <encrypted-archive.nct> <output-image> | carrier-extract <carrier-image> <output-archive.nct> | constellation-split <archive.nct> <new-output-directory> [fragment-bytes] | constellation-inspect <fragment-1.ncfr> [more-fragments...] | constellation-inspect-images <carrier-image1> [more-carriers...] | constellation-reassemble <output-archive.nct> <fragment-1.ncfr> [fragment-2.ncfr ...] | constellation-encode <archive.nct> <new-output-directory> <cover-image1> [cover-image2 ...] | constellation-reassemble-images <output-archive.nct> <carrier-image1> [carrier-image2 ...] | constellation-recovery-encode <archive.nct> <new-output-directory> <shard-bytes> <parity-shards> <cover-image1> [more-images...] | constellation-recovery-split <archive.nct> <new-output-directory> <shard-bytes> <parity-shards> | constellation-recovery <output-archive.nct> <shard1.ncrs> [more-shards...] | constellation-recovery-images <output-archive.nct> <carrier1.png> [more-carriers...]".into()),
+        _ => return Err("usage: noctyra encrypt <file> <archive.nct> | decrypt <archive.nct> <file> | encrypt-dir <directory> <archive.nct> | decrypt-dir <archive.nct> <new-directory> | cleanup-staging <parent-directory> | carrier-embed <carrier-image> <encrypted-archive.nct> <output-image> | carrier-extract <carrier-image> <output-archive.nct> | constellation-split <archive.nct> <new-output-directory> [fragment-bytes] | constellation-inspect <fragment-1.ncfr> [more-fragments...] | constellation-inspect-images <carrier-image1> [more-carriers...] | constellation-reassemble <output-archive.nct> <fragment-1.ncfr> [fragment-2.ncfr ...] | constellation-encode <archive.nct> <new-output-directory> <cover-image1> [cover-image2 ...] | constellation-reassemble-images <output-archive.nct> <carrier-image1> [carrier-image2 ...] | constellation-recovery-encode <archive.nct> <new-output-directory> <shard-bytes> <parity-shards> <cover-image1> [more-images...] | constellation-recovery-split <archive.nct> <new-output-directory> <shard-bytes> <parity-shards> | constellation-recovery <output-archive.nct> <shard1.ncrs> [more-shards...] | constellation-recovery-images <output-archive.nct> <carrier1.png> [more-carriers...] | constellation-keygen <private-key-file> <public-key-file> | constellation-manifest-create <shard1.ncrs> [more-shards...] <private-key-file> <manifest.ncmf> | constellation-manifest-verify-recovery <output.nct> <manifest.ncmf> <trusted-public-key-file> <shard1.ncrs> [more-shards...]".into()),
     }
 
     println!("Operation completed: {}", output.display());
