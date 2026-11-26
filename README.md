@@ -1,6 +1,6 @@
- <p align="center">
+<p align="center">
   <img
-    src="assets/NOCTYRA%20Futuristic%20Orbital%20Network.png"
+    src="assets/NOCTYRA%E2%84%A2%20Futuristic%20Orbital%20Network.png"
     alt="NOCTYRA — Networked Obscured Cryptographic Transfer & Recovery Architecture"
     width="100%"
   />
