@@ -508,7 +508,7 @@ pub fn parse_signed_manifest(bytes: &[u8]) -> Result<SignedManifest, Constellati
         .ok_or(ConstellationError::MalformedManifest)?;
     if bytes.len() != expected { return Err(ConstellationError::MalformedManifest); }
     let mut shard_digests = Vec::with_capacity(total);
-    for digest_bytes in bytes[MANIFEST_BODY_LEN..body_len].chunks_exact(32) {
+    for digest_bytes in bytes[MANIFEST_BODY_LEN..body_len].as_chunks::<32>().0 {
         let mut value = [0u8; 32]; value.copy_from_slice(digest_bytes); shard_digests.push(value);
     }
     let mut signer_public_key = [0u8; 32]; signer_public_key.copy_from_slice(&bytes[body_len..body_len + 32]);
