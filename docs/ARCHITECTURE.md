@@ -18,7 +18,8 @@ User files
   -> authenticated encryption
   -> encrypted archive payload
   -> optional CONSTELLATION packetization
-  -> optional lossless image carrier
+  -> optional lossless PNG/BMP image carrier (NCAR v1 RGB-LSB frame)
+  -> recipient carrier extraction and payload integrity check
   -> recipient validation and reassembly
   -> authenticated decryption
   -> safe extraction
@@ -29,8 +30,8 @@ User files
 - `noctyra-core`: orchestration and shared application-level types.
 - `noctyra-crypto`: password KDF, random key generation, AEAD, key wrapping.
 - `noctyra-container`: NCT serialization and bounded parsing.
-- `noctyra-image`: PNG/BMP loading, saving, and metadata policy.
-- `noctyra-steganography`: reversible experimental carrier codec interfaces.
+- `noctyra-image`: bounded PNG/BMP loading, pixel access and encoding.
+- `noctyra-steganography`: reversible experimental RGB-LSB carrier codec and NCAR payload framing.
 - `noctyra-compression`: bounded compression/decompression.
 - `noctyra-constellation`: packet manifests, identifiers, integrity and reassembly.
 - `noctyra-recovery`: validation, duplicate/missing-part reporting and recovery orchestration.
@@ -45,6 +46,10 @@ The intended design is envelope encryption:
 - Password changes should re-wrap the DEK rather than re-encrypt all content.
 
 The design must specify nonce uniqueness, key identifiers, associated data, version migration and memory-clearing limits before implementation.
+
+## Image carrier boundary
+
+The initial image lab accepts PNG and BMP only, checks file signatures and bounds compressed input, dimensions and decoded RGBA allocation. The experimental NCAR v1 frame carries an opaque payload with a length and BLAKE3 corruption-detection digest. RGB least-significant bits are modified; alpha is preserved. The intended payload is an already-encrypted NCT archive. The digest is not an authentication substitute: NCT AEAD must still verify. Lossy transforms, resizing, filtering, recompression by lossy services and many metadata/image optimizers may destroy the carrier. No undetectability guarantee is made.
 
 ## Desktop boundary
 
