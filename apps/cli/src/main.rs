@@ -72,14 +72,14 @@ fn run() -> Result<(), Box<dyn Error>> {
     match command.as_ref() {
         "encrypt" => {
             let secret = password(true)?;
-            let bytes = read_bounded(input)?;
+            let bytes = Zeroizing::new(read_bounded(input)?);
             let archive = noctyra_core::seal_archive(secret.as_bytes(), &bytes)?;
             write_new(output, &archive)?;
         }
         "decrypt" => {
             let secret = password(false)?;
             let archive = read_bounded(input)?;
-            let bytes = noctyra_core::open_archive(secret.as_bytes(), &archive)?;
+            let bytes = Zeroizing::new(noctyra_core::open_archive(secret.as_bytes(), &archive)?);
             write_new(output, &bytes)?;
         }
         "encrypt-dir" => {
