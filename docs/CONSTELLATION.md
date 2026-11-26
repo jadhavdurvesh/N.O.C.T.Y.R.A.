@@ -231,7 +231,9 @@ cargo run -p noctyra-cli -- encrypt-with-recovery-key .\\important-file.pdf .\\i
 cargo run -p noctyra-cli -- decrypt-with-recovery-key .\\important-file.nct .\\restored-file.pdf .\\offline-recovery.key
 ```
 
-### Streaming reconstruction status
+### Bounded-stripe reconstruction status
 
-The current Reed-Solomon implementation reconstructs a complete codeword in memory. The CLI keeps its output unpublished until the recovered encrypted archive passes final digest and NCT header checks, and plaintext decryption remains a separate authenticated operation. True bounded-memory shard reconstruction is not yet implemented: it requires a disk-backed or streaming erasure-code design, authenticated temporary shard storage, bounded scratch-space accounting, and crash cleanup tests. Do not describe the current reconstruction as streaming.
+The recovery API now provides `recover_archive_to_writer`. It validates each shard frame without copying its payload, reconstructs Reed-Solomon codewords in 64 KiB stripes, writes data-shard ranges to a seekable scratch file, and performs a sequential final BLAKE3 digest and NCT-header check before returning success. The CLI keeps that scratch file unpublished and only decrypts it into a second temporary output; final plaintext publication still occurs only after NCT AEAD authentication.
+
+This removes the extra full reconstructed-codeword and full archive allocations from the recovery algorithm. It is not yet fully streaming end-to-end: the current CLI still loads the supplied carrier images and shard frames into memory before calling the writer API. Streaming carrier reads into authenticated scratch storage, scratch-space quotas, truncation, crash cleanup and power-loss tests remain outstanding.
 
