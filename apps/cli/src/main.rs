@@ -119,7 +119,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         let image_bytes = Zeroizing::new(read_carrier_file(Path::new(&paths[0]))?);
         let archive_bytes = Zeroizing::new(read_limited(Path::new(&paths[1]), 16 * 1024 * 1024, "encrypted archive payload")?);
         if archive_bytes.len() < 6 || &archive_bytes[..4] != b"NCTY" {
-            return Err("carrier payload must be a valid NOCTYRA NCT archive".into());
+            return Err("carrier payload must begin with a NOCTYRA NCT archive header".into());
         }
         let archive_version = u16::from_le_bytes([archive_bytes[4], archive_bytes[5]]);
         if !matches!(archive_version, 1 | 2) { return Err("unsupported NCT archive version for carrier embedding".into()); }
@@ -139,6 +139,13 @@ fn run() -> Result<(), Box<dyn Error>> {
         let image_bytes = Zeroizing::new(read_carrier_file(Path::new(&paths[0]))?);
         let carrier = noctyra_core::CarrierImage::load(&image_bytes)?;
         let payload = Zeroizing::new(noctyra_core::extract_carrier(&carrier)?);
+        if payload.len() < 6 || &payload[..4] != b"NCTY" {
+            return Err("extracted carrier data does not contain an NCT archive header".into());
+        }
+        let archive_version = u16::from_le_bytes([payload[4], payload[5]]);
+        if !matches!(archive_version, 1 | 2) {
+            return Err("extracted carrier contains an unsupported NCT version".into());
+        }
         let output = Path::new(&paths[1]);
         let mut temp = temporary_output(output)?;
         temp.as_file_mut().write_all(&payload)?;
