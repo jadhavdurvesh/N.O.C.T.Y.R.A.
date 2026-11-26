@@ -56,19 +56,36 @@ fn encrypt_file(input_path: String, output_path: String, password: String) -> Re
 #[tauri::command]
 fn decrypt_file(input_path: String, output_path: String, password: String) -> Result<(), String> {
     let password = Zeroizing::new(password);
-    if password.is_empty() {
-        return Err("Password cannot be empty.".into());
-    }
+    if password.is_empty() { return Err("Password cannot be empty.".into()); }
     let archive = read_bounded(&input_path)?;
     let plaintext = noctyra_core::open_archive(password.as_bytes(), &archive)
         .map_err(|e| format!("Archive rejected: {e}"))?;
     write_new(&output_path, &plaintext)
 }
 
+#[tauri::command]
+fn encrypt_directory(input_path: String, output_path: String, password: String) -> Result<(), String> {
+    let password = Zeroizing::new(password);
+    if password.is_empty() { return Err("Password cannot be empty.".into()); }
+    if Path::new(&output_path).exists() { return Err("Output already exists; refusing to overwrite.".into()); }
+    let archive = noctyra_core::seal_directory(password.as_bytes(), &input_path)
+        .map_err(|e| format!("Directory archive failed: {e}"))?;
+    write_new(&output_path, &archive)
+}
+
+#[tauri::command]
+fn decrypt_directory(input_path: String, output_path: String, password: String) -> Result<(), String> {
+    let password = Zeroizing::new(password);
+    if password.is_empty() { return Err("Password cannot be empty.".into()); }
+    let archive = read_bounded(&input_path)?;
+    noctyra_core::extract_directory(password.as_bytes(), &archive, &output_path)
+        .map_err(|e| format!("Directory recovery failed: {e}"))
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![encrypt_file, decrypt_file])
+        .invoke_handler(tauri::generate_handler![encrypt_file, decrypt_file, encrypt_directory, decrypt_directory])
         .run(tauri::generate_context!())
         .expect("NOCTYRA desktop runtime failed");
 }
