@@ -13,4 +13,5 @@ tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 noctyra-core = { path = "../../../crates/noctyra-core" }
 zeroize.workspace = true
+rand_core.workspace = true
 tempfile = "3"
