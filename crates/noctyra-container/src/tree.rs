@@ -22,7 +22,7 @@ const MAX_TREE_BYTES: usize = 1024 * 1024 * 1024;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum EntryKind { Directory = 0, File = 1 }
 
-struct TreeEntry { path: String, kind: EntryKind, bytes: Vec<u8> }
+struct TreeEntry { path: String, kind: EntryKind, bytes: Zeroizing<Vec<u8>> }
 
 fn io_error(error: std::io::Error) -> ContainerError {
     ContainerError::Io(error.to_string())
@@ -64,7 +64,7 @@ fn collect_directory(root: &Path, current: &Path, entries: &mut Vec<TreeEntry>, 
         if metadata.file_type().is_symlink() { return Err(ContainerError::InvalidTree); }
 
         if metadata.is_dir() {
-            entries.push(TreeEntry { path: name, kind: EntryKind::Directory, bytes: Vec::new() });
+            entries.push(TreeEntry { path: name, kind: EntryKind::Directory, bytes: Zeroizing::new(Vec::new()) });
             if entries.len() > MAX_ENTRIES { return Err(ContainerError::TooManyEntries); }
             collect_directory(root, &path, entries, total)?;
         } else if metadata.is_file() {
@@ -75,7 +75,7 @@ fn collect_directory(root: &Path, current: &Path, entries: &mut Vec<TreeEntry>, 
                 .read_to_end(&mut bytes).map_err(io_error)?;
             if bytes.len() > remaining { return Err(ContainerError::TooLarge); }
             *total = total.checked_add(bytes.len()).ok_or(ContainerError::TooLarge)?;
-            entries.push(TreeEntry { path: name, kind: EntryKind::File, bytes });
+            entries.push(TreeEntry { path: name, kind: EntryKind::File, bytes: Zeroizing::new(bytes) });
             if entries.len() > MAX_ENTRIES { return Err(ContainerError::TooManyEntries); }
         } else {
             return Err(ContainerError::InvalidTree);
