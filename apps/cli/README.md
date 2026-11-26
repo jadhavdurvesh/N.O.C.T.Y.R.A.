@@ -100,6 +100,29 @@ cargo run -p noctyra-cli -- constellation-recovery-images .\\recovered.nct .\\re
 
 NCRS v1 uses systematic Reed-Solomon parity shards. With k data shards and r parity shards, any k distinct shards can recover the archive, so up to r shards may be missing or damaged. Recovery verifies shard checksums, codeword consistency, the final archive digest and the NCT header. These checks do not authenticate a sender; NCT AEAD remains the authenticity boundary.
 
+## Authenticated CONSTELLATION recovery manifests
+
+Generate an Ed25519 signing keypair. The private key is local secret material; the public key must be distributed and pinned independently by recipients:
+
+```powershell
+cargo run -p noctyra-cli -- constellation-keygen .\\noctyra-signing.key .\\noctyra-signing.pub
+```
+
+Create a complete recovery set, then sign its metadata:
+
+```powershell
+cargo run -p noctyra-cli -- constellation-recovery-split .\\archive.nct .\\recovery-shards 4194304 2
+cargo run -p noctyra-cli -- constellation-manifest-create .\\recovery-shards\\shard-0000.ncrs .\\recovery-shards\\shard-0001.ncrs .\\recovery-shards\\shard-0002.ncrs .\\recovery-shards\\shard-0003.ncrs .\\recovery-shards\\shard-0004.ncrs .\\recovery-shards\\shard-0005.ncrs .\\recovery-shards\\shard-0006.ncrs .\\recovery-shards\\shard-0007.ncrs .\\recovery-shards\\shard-0008.ncrs .\\recovery-shards\\shard-0009.ncrs .\\noctyra-signing.key .\\transfer.ncmf
+```
+
+Verify the manifest against a trusted public key and recover using any sufficient set of valid shards:
+
+```powershell
+cargo run -p noctyra-cli -- constellation-manifest-verify-recovery .\\recovered.nct .\\transfer.ncmf .\\trusted-sender.pub .\\recovery-shards\\shard-0000.ncrs .\\recovery-shards\\shard-0002.ncrs .\\recovery-shards\\shard-0003.ncrs .\\recovery-shards\\shard-0004.ncrs .\\recovery-shards\\shard-0005.ncrs .\\recovery-shards\\shard-0006.ncrs .\\recovery-shards\\shard-0007.ncrs
+```
+
+Manifest signatures authenticate possession of a signing key, not a person's identity by themselves. Recipients must obtain the trusted public key independently. The private-key file is raw 32-byte material; never commit it to the repository or share it with the carrier set. Unix files are created with mode 0600. Use secure offline storage and backups.
+
 ## Current limitations
 - Legacy NMF1 directory archives remain buffered; new directory archives use NMF2 streaming.
 - No image carriers or CONSTELLATION packet splitting yet.
