@@ -8,3 +8,4 @@ publish = false
 [dependencies]
 noctyra-crypto = { path = "../noctyra-crypto" }
 thiserror.workspace = true
+zeroize.workspace = true
