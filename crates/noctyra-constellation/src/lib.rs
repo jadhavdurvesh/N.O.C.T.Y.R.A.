@@ -729,6 +729,36 @@ mod tests {
         assert_eq!(parse_recovery_shard(&corrupt), Err(ConstellationError::FragmentIntegrity));
     }
 
+    struct FailingScratch {
+        inner: std::io::Cursor<Vec<u8>>,
+        remaining: usize,
+    }
+    impl std::io::Read for FailingScratch {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> { std::io::Read::read(&mut self.inner, buf) }
+    }
+    impl std::io::Seek for FailingScratch {
+        fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> { std::io::Seek::seek(&mut self.inner, pos) }
+    }
+    impl std::io::Write for FailingScratch {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            if self.remaining == 0 { return Err(std::io::Error::other("simulated disk full")); }
+            let count = buf.len().min(self.remaining);
+            let written = std::io::Write::write(&mut self.inner, &buf[..count])?;
+            self.remaining -= written;
+            Ok(written)
+        }
+        fn flush(&mut self) -> std::io::Result<()> { std::io::Write::flush(&mut self.inner) }
+    }
+
+    #[test]
+    fn bounded_stripe_writer_propagates_scratch_write_failure() {
+        let original = archive();
+        let shards = create_recovery_shards_with_id(&original, 1024, 2, [63u8; 16]).unwrap();
+        let refs: Vec<&[u8]> = shards.iter().map(Vec::as_slice).collect();
+        let mut scratch = FailingScratch { inner: std::io::Cursor::new(Vec::new()), remaining: 128 };
+        assert_eq!(recover_archive_to_writer(refs, &mut scratch), Err(ConstellationError::RecoveryFailed));
+    }
+
     #[test]
     fn bounded_stripe_writer_reconstructs_with_missing_shards() {
         let original = archive();
