@@ -21,6 +21,9 @@ pub use tree::{extract_directory, seal_directory};
 mod stream;
 pub use stream::{decrypt_stream, encrypt_stream, STREAM_CHUNK_SIZE};
 
+mod directory_stream;
+pub use directory_stream::{decrypt_directory_stream, encrypt_directory_stream};
+
 #[derive(Debug, thiserror::Error)]
 pub enum ContainerError {
     #[error("archive is truncated or malformed")]
