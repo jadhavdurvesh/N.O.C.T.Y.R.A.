@@ -249,35 +249,44 @@ pub fn create_recovery_shards_with_id(
     Ok(output)
 }
 
-pub fn parse_recovery_shard(bytes: &[u8]) -> Result<RecoveryShard, ConstellationError> {
-    if bytes.len() < RECOVERY_HEADER_LEN || &bytes[..4] != RECOVERY_MAGIC {
-        return Err(ConstellationError::MalformedFragment);
-    }
-    let version = u16::from_le_bytes([bytes[4], bytes[5]]);
-    if version != RECOVERY_VERSION { return Err(ConstellationError::MalformedFragment); }
-    let mut transfer_id = [0u8; 16];
-    transfer_id.copy_from_slice(&bytes[6..22]);
+#[derive(Clone, Copy)]
+struct RecoveryShardView<'a> {
+    transfer_id: [u8; 16], archive_len: u64, data_shards: u16,
+    parity_shards: u16, index: u16, shard_size: u32,
+    archive_digest: [u8; 32], data: &'a [u8],
+}
+fn parse_recovery_shard_view(bytes: &[u8]) -> Result<RecoveryShardView<'_>, ConstellationError> {
+    if bytes.len() < RECOVERY_HEADER_LEN || &bytes[..4] != RECOVERY_MAGIC { return Err(ConstellationError::MalformedFragment); }
+    if u16::from_le_bytes([bytes[4], bytes[5]]) != RECOVERY_VERSION { return Err(ConstellationError::MalformedFragment); }
+    let mut transfer_id = [0u8; 16]; transfer_id.copy_from_slice(&bytes[6..22]);
     let archive_len = u64::from_le_bytes(bytes[22..30].try_into().map_err(|_| ConstellationError::MalformedFragment)?);
     let data_shards = u16::from_le_bytes(bytes[30..32].try_into().map_err(|_| ConstellationError::MalformedFragment)?);
     let parity_shards = u16::from_le_bytes(bytes[32..34].try_into().map_err(|_| ConstellationError::MalformedFragment)?);
     let index = u16::from_le_bytes(bytes[34..36].try_into().map_err(|_| ConstellationError::MalformedFragment)?);
     let shard_size = u32::from_le_bytes(bytes[36..40].try_into().map_err(|_| ConstellationError::MalformedFragment)?) as usize;
-    let mut archive_digest = [0u8; 32];
-    archive_digest.copy_from_slice(&bytes[40..72]);
-    let mut shard_digest = [0u8; 32];
-    shard_digest.copy_from_slice(&bytes[72..104]);
+    let mut archive_digest = [0u8; 32]; archive_digest.copy_from_slice(&bytes[40..72]);
+    let mut shard_digest = [0u8; 32]; shard_digest.copy_from_slice(&bytes[72..104]);
     let total = data_shards as usize + parity_shards as usize;
-    if archive_len == 0 || archive_len > MAX_ARCHIVE_BYTES as u64
-        || data_shards == 0 || parity_shards == 0 || total > MAX_RECOVERY_SHARDS
-        || index as usize >= total || shard_size == 0 || shard_size > MAX_FRAGMENT_DATA_BYTES
+    if archive_len == 0 || archive_len > MAX_ARCHIVE_BYTES as u64 || data_shards == 0
+        || parity_shards == 0 || total > MAX_RECOVERY_SHARDS || index as usize >= total
+        || shard_size == 0 || shard_size > MAX_FRAGMENT_DATA_BYTES
         || bytes.len() != RECOVERY_HEADER_LEN.checked_add(shard_size).ok_or(ConstellationError::MalformedFragment)?
         || (data_shards as u64 - 1).saturating_mul(shard_size as u64) >= archive_len
         || (data_shards as u64).saturating_mul(shard_size as u64) < archive_len {
         return Err(ConstellationError::MalformedFragment);
     }
-    let data = bytes[RECOVERY_HEADER_LEN..].to_vec();
-    if digest(&data) != shard_digest { return Err(ConstellationError::FragmentIntegrity); }
-    Ok(RecoveryShard { transfer_id, archive_len, data_shards, parity_shards, index, shard_size: shard_size as u32, archive_digest, data })
+    let data = &bytes[RECOVERY_HEADER_LEN..];
+    if digest(data) != shard_digest { return Err(ConstellationError::FragmentIntegrity); }
+    Ok(RecoveryShardView { transfer_id, archive_len, data_shards, parity_shards, index, shard_size: shard_size as u32, archive_digest, data })
+}
+pub fn parse_recovery_shard(bytes: &[u8]) -> Result<RecoveryShard, ConstellationError> {
+    let view = parse_recovery_shard_view(bytes)?;
+    Ok(RecoveryShard {
+        transfer_id: view.transfer_id, archive_len: view.archive_len,
+        data_shards: view.data_shards, parity_shards: view.parity_shards,
+        index: view.index, shard_size: view.shard_size,
+        archive_digest: view.archive_digest, data: view.data.to_vec(),
+    })
 }
 
 pub fn inspect_recovery_shards<'a, I>(inputs: I) -> Result<RecoveryReport, ConstellationError>
@@ -308,48 +317,94 @@ where I: IntoIterator<Item = &'a [u8]> {
     })
 }
 
-/// Reconstruct the archive when any k of n valid shards are available.
-pub fn recover_archive<'a, I>(inputs: I) -> Result<Vec<u8>, ConstellationError>
-where I: IntoIterator<Item = &'a [u8]> {
-    let mut received = Vec::new();
-    for input in inputs { received.push(parse_recovery_shard(input)?); }
-    let first = received.first().ok_or(ConstellationError::InsufficientRecoveryShards)?;
-    let data_count = first.data_shards as usize;
-    let parity_count = first.parity_shards as usize;
-    let shard_size = first.shard_size as usize;
-    let total = data_count + parity_count;
-    if received.len() < data_count { return Err(ConstellationError::InsufficientRecoveryShards); }
-    let archive_len = usize::try_from(first.archive_len).map_err(|_| ConstellationError::ArchiveTooLarge)?;
-    let transfer_id = first.transfer_id;
-    let archive_digest = first.archive_digest;
-    let archive_len_u64 = first.archive_len;
-    let mut shards: Vec<Option<Vec<u8>>> = (0..total).map(|_| None).collect();
-    for shard in received {
-        if shard.transfer_id != transfer_id || shard.archive_len != archive_len_u64
-            || shard.data_shards as usize != data_count || shard.parity_shards as usize != parity_count
-            || shard.shard_size as usize != shard_size || shard.archive_digest != archive_digest {
-            return Err(ConstellationError::TransferMismatch);
+/// Reconstruct to an empty seekable scratch file in 64 KiB stripes.
+/// Carrier payloads remain borrowed from the caller; the complete codeword
+/// and complete plaintext archive are never duplicated in memory. Do not
+/// publish the scratch file unless this function returns successfully.
+pub fn recover_archive_to_writer<'a, I, W>(inputs: I, output: &mut W) -> Result<(), ConstellationError>
+where I: IntoIterator<Item = &'a [u8]>, W: std::io::Read + std::io::Write + std::io::Seek {
+    use std::io::{Read, Seek, SeekFrom, Write};
+    const STRIPE: usize = 64 * 1024;
+    let mut first: Option<RecoveryShardView<'a>> = None;
+    let mut slots: Vec<Option<&'a [u8]>> = Vec::new();
+    for input in inputs {
+        let shard = parse_recovery_shard_view(input)?;
+        if let Some(base) = first {
+            if shard.transfer_id != base.transfer_id || shard.archive_len != base.archive_len
+                || shard.data_shards != base.data_shards || shard.parity_shards != base.parity_shards
+                || shard.shard_size != base.shard_size || shard.archive_digest != base.archive_digest {
+                return Err(ConstellationError::TransferMismatch);
+            }
+        } else {
+            slots = vec![None; shard.data_shards as usize + shard.parity_shards as usize];
+            first = Some(shard);
         }
-        let slot = &mut shards[shard.index as usize];
+        let slot = &mut slots[shard.index as usize];
         if slot.is_some() { return Err(ConstellationError::DuplicateFragment(shard.index as u32)); }
         *slot = Some(shard.data);
     }
-    let codec = ReedSolomon::new(data_count, parity_count).map_err(|_| ConstellationError::InvalidRecoveryParameters)?;
-    codec.reconstruct(&mut shards).map_err(|_| ConstellationError::RecoveryFailed)?;
-    let complete: Vec<Vec<u8>> = shards.into_iter().map(|shard| shard.ok_or(ConstellationError::RecoveryFailed)).collect::<Result<_, _>>()?;
-    if !codec.verify(&complete).map_err(|_| ConstellationError::RecoveryFailed)? {
-        return Err(ConstellationError::RecoveryFailed);
+    let first = first.ok_or(ConstellationError::InsufficientRecoveryShards)?;
+    let k = first.data_shards as usize;
+    let r = first.parity_shards as usize;
+    let shard_size = first.shard_size as usize;
+    if slots.iter().filter(|slot| slot.is_some()).count() < k {
+        return Err(ConstellationError::InsufficientRecoveryShards);
     }
-    let mut archive = Vec::with_capacity(archive_len);
-    for shard in complete.iter().take(data_count) {
-        let remaining = archive_len.saturating_sub(archive.len());
-        archive.extend_from_slice(&shard[..remaining.min(shard.len())]);
+    let archive_len = usize::try_from(first.archive_len).map_err(|_| ConstellationError::ArchiveTooLarge)?;
+    let codec = ReedSolomon::new(k, r).map_err(|_| ConstellationError::InvalidRecoveryParameters)?;
+    output.seek(SeekFrom::Start(0)).map_err(|_| ConstellationError::RecoveryFailed)?;
+    for offset in (0..shard_size).step_by(STRIPE) {
+        let end = (offset + STRIPE).min(shard_size);
+        let mut stripe: Vec<Option<Vec<u8>>> = slots.iter()
+            .map(|slot| slot.map(|bytes| bytes[offset..end].to_vec())).collect();
+        codec.reconstruct(&mut stripe).map_err(|_| ConstellationError::RecoveryFailed)?;
+        let complete: Vec<Vec<u8>> = stripe.into_iter()
+            .map(|part| part.ok_or(ConstellationError::RecoveryFailed))
+            .collect::<Result<_, _>>()?;
+        if !codec.verify(&complete).map_err(|_| ConstellationError::RecoveryFailed)? {
+            return Err(ConstellationError::RecoveryFailed);
+        }
+        for data_index in 0..k {
+            let position = data_index.checked_mul(shard_size).and_then(|v| v.checked_add(offset))
+                .ok_or(ConstellationError::ArchiveTooLarge)?;
+            if position >= archive_len { continue; }
+            let count = (archive_len - position).min(end - offset);
+            output.seek(SeekFrom::Start(position as u64)).map_err(|_| ConstellationError::RecoveryFailed)?;
+            output.write_all(&complete[data_index][..count]).map_err(|_| ConstellationError::RecoveryFailed)?;
+        }
     }
-    if archive.len() != archive_len || digest(&archive) != archive_digest {
-        return Err(ConstellationError::ArchiveIntegrity);
+    output.flush().map_err(|_| ConstellationError::RecoveryFailed)?;
+    output.seek(SeekFrom::Start(0)).map_err(|_| ConstellationError::RecoveryFailed)?;
+    let mut hasher = blake3::Hasher::new();
+    let mut remaining = archive_len;
+    let mut prefix = [0u8; 6];
+    let mut prefix_len = 0usize;
+    let mut buffer = [0u8; STRIPE];
+    while remaining > 0 {
+        let count = remaining.min(buffer.len());
+        output.read_exact(&mut buffer[..count]).map_err(|_| ConstellationError::RecoveryFailed)?;
+        if prefix_len < 6 {
+            let take = (6 - prefix_len).min(count);
+            prefix[prefix_len..prefix_len + take].copy_from_slice(&buffer[..take]);
+            prefix_len += take;
+        }
+        hasher.update(&buffer[..count]);
+        remaining -= count;
     }
-    validate_nct_archive(&archive)?;
-    Ok(archive)
+    if hasher.finalize().as_bytes() != &first.archive_digest { return Err(ConstellationError::ArchiveIntegrity); }
+    if prefix_len != 6 || &prefix[..4] != b"NCTY" || !matches!(u16::from_le_bytes([prefix[4], prefix[5]]), 1 | 2) {
+        return Err(ConstellationError::InvalidArchive);
+    }
+    output.seek(SeekFrom::Start(0)).map_err(|_| ConstellationError::RecoveryFailed)?;
+    Ok(())
+}
+
+/// Convenience API for callers that explicitly need the complete archive in memory.
+pub fn recover_archive<'a, I>(inputs: I) -> Result<Vec<u8>, ConstellationError>
+where I: IntoIterator<Item = &'a [u8]> {
+    let mut output = std::io::Cursor::new(Vec::new());
+    recover_archive_to_writer(inputs, &mut output)?;
+    Ok(output.into_inner())
 }
 
 /// Signed recovery manifest. The signature covers the fixed header and
