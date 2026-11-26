@@ -332,6 +332,132 @@ fn run() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
+    if command == "constellation-send" {
+        if paths.len() < 7 || paths.len() > noctyra_core::MAX_RECOVERY_SHARDS + 5 {
+            return Err("usage: noctyra constellation-send <plaintext-file> <new-package-directory> <identity.nckv> <shard-bytes> <parity-shards> <cover-image1> [more-images...]".into());
+        }
+        let input = Path::new(&paths[0]);
+        check_regular_file(input)?;
+        let destination = Path::new(&paths[1]);
+        if destination.exists() { return Err("package directory already exists; refusing to overwrite".into()); }
+        let shard_size = paths[3].to_string_lossy().parse::<usize>()?;
+        let parity_count = paths[4].to_string_lossy().parse::<usize>()?;
+        let cover_paths = &paths[5..];
+
+        println!("Unlock the sender identity vault.");
+        let vault_password = password(false)?;
+        let vault_bytes = Zeroizing::new(read_limited(Path::new(&paths[2]), noctyra_core::VAULT_FILE_LEN as u64, "identity vault")?);
+        let signing_key = noctyra_core::unlock_vault(vault_password.as_bytes(), &vault_bytes)?;
+        let signer_public = signing_key.verifying_key().to_bytes();
+
+        println!("Choose the password that the recipient will need to decrypt the file.");
+        let archive_password = password(true)?;
+        let mut archive_file = tempfile::tempfile()?;
+        noctyra_core::encrypt_stream(archive_password.as_bytes(), File::open(input)?, &mut archive_file)?;
+        archive_file.seek(SeekFrom::Start(0))?;
+        let mut archive = Zeroizing::new(Vec::new());
+        archive_file.take(MAX_INPUT_BYTES + 1).read_to_end(&mut archive)?;
+        if archive.len() as u64 > MAX_INPUT_BYTES { return Err("encrypted archive exceeds the configured transfer limit".into()); }
+
+        let mut smallest_capacity = usize::MAX;
+        for path in cover_paths {
+            let image_bytes = Zeroizing::new(read_carrier_file(Path::new(path))?);
+            let carrier = noctyra_core::CarrierImage::load(&image_bytes)?;
+            let capacity = noctyra_core::estimate_carrier_capacity(&carrier).payload_bytes
+                .saturating_sub(noctyra_core::RECOVERY_HEADER_LEN);
+            smallest_capacity = smallest_capacity.min(capacity);
+        }
+        if shard_size == 0 || shard_size > smallest_capacity {
+            return Err(format!("shard size must fit every supplied cover image; maximum available is {smallest_capacity} bytes").into());
+        }
+
+        let shards = noctyra_core::create_recovery_shards(&archive, shard_size, parity_count)?;
+        if shards.len() > cover_paths.len() {
+            return Err(format!("not enough cover images: {} shards required, {} supplied", shards.len(), cover_paths.len()).into());
+        }
+        let shard_refs: Vec<&[u8]> = shards.iter().map(Vec::as_slice).collect();
+        let manifest = Zeroizing::new(noctyra_core::create_signed_manifest_for_shards(shard_refs, &signing_key)?);
+        let fingerprint = blake3::hash(&signer_public).to_hex().to_string();
+
+        let parent = destination.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+        let staging = tempfile::Builder::new().prefix(".noctyra-send-").tempdir_in(parent)?;
+        let manifest_path = staging.path().join("manifest.ncmf");
+        let mut manifest_file = File::options().write(true).create_new(true).open(&manifest_path)?;
+        manifest_file.write_all(&manifest)?;
+        manifest_file.sync_all()?;
+
+        for (index, shard) in shards.iter().enumerate() {
+            let image_bytes = Zeroizing::new(read_carrier_file(Path::new(&cover_paths[index]))?);
+            let mut carrier = noctyra_core::CarrierImage::load(&image_bytes)?;
+            noctyra_core::embed_carrier(&mut carrier, shard)?;
+            let format = carrier.format();
+            let encoded = Zeroizing::new(carrier.encode(format)?);
+            let output = staging.path().join(format!("carrier-{:04}.{}", index + 1, format.extension()));
+            let mut file = File::options().write(true).create_new(true).open(output)?;
+            file.write_all(&encoded)?;
+            file.sync_all()?;
+        }
+
+        let staging_path = staging.keep();
+        if let Err(error) = fs::rename(&staging_path, destination) {
+            let _ = fs::remove_dir_all(&staging_path);
+            return Err(error.into());
+        }
+        println!("CONSTELLATION package created: {}", destination.display());
+        println!("Signed manifest: manifest.ncmf");
+        println!("Carrier count: {}", shards.len());
+        println!("Signer fingerprint: {fingerprint}");
+        println!("Share the package directory with the recipient through your chosen channel. Share the archive password separately.");
+        return Ok(());
+    }
+
+    if command == "constellation-receive" {
+        if paths.len() < 5 {
+            return Err("usage: noctyra constellation-receive <output-plaintext-file> <manifest.ncmf> <registry.ncts> <trusted-fingerprint> <carrier1.png> [more-carriers...]".into());
+        }
+        let manifest_bytes = Zeroizing::new(read_limited(Path::new(&paths[1]), noctyra_core::MAX_MANIFEST_LEN as u64, "signed manifest")?);
+        let registry_bytes = Zeroizing::new(read_limited(Path::new(&paths[2]), noctyra_core::MAX_TRUST_STORE_BYTES as u64, "trust registry")?);
+        println!("Unlock the local trusted-sender registry.");
+        let registry_password = password(false)?;
+        let store = noctyra_core::open_trust_store(registry_password.as_bytes(), &registry_bytes)?;
+        let fingerprint = paths[3].to_string_lossy();
+        let trusted_key = store.trusted_public_key(&fingerprint)?;
+        let verified_manifest = noctyra_core::verify_signed_manifest(&manifest_bytes, &trusted_key)?;
+
+        let mut shards = Vec::with_capacity(paths.len() - 4);
+        for path in &paths[4..] {
+            let image_bytes = Zeroizing::new(read_carrier_file(Path::new(path))?);
+            let carrier = noctyra_core::CarrierImage::load(&image_bytes)?;
+            shards.push(Zeroizing::new(noctyra_core::extract_carrier(&carrier)?));
+        }
+        let shard_refs: Vec<&[u8]> = shards.iter().map(|shard| shard.as_slice()).collect();
+        let report = noctyra_core::verify_manifest_shards(&verified_manifest, shard_refs.iter().copied())?;
+        if !report.recoverable {
+            return Err(format!("signed transfer is authentic but incomplete: received {}, need at least {} valid carriers", report.received_shards, report.data_shards).into());
+        }
+        let archive = Zeroizing::new(noctyra_core::recover_archive(shard_refs.iter().copied())?);
+
+        println!("Enter the file-encryption password supplied separately by the sender.");
+        let archive_password = password(false)?;
+        let mut temp = temporary_output(Path::new(&paths[0]))?;
+        if archive.len() < 6 || &archive[..4] != b"NCTY" {
+            return Err("recovered data is not a supported NCT archive".into());
+        }
+        let version = u16::from_le_bytes([archive[4], archive[5]]);
+        match version {
+            2 => noctyra_core::decrypt_stream(archive_password.as_bytes(), std::io::Cursor::new(archive.as_slice()), temp.as_file_mut())?,
+            1 => {
+                let plaintext = Zeroizing::new(noctyra_core::open_archive(archive_password.as_bytes(), &archive)?);
+                temp.as_file_mut().write_all(&plaintext)?;
+            }
+            other => return Err(format!("unsupported recovered NCT archive version: {other}").into()),
+        }
+        publish(temp, Path::new(&paths[0]))?;
+        println!("Trusted sender verified, recovery completed and archive authenticated.");
+        println!("Decrypted file published: {}", paths[0].to_string_lossy());
+        return Ok(());
+    }
+
     if command == "constellation-manifest-create" {
         if paths.len() < 3 { return Err("usage: noctyra constellation-manifest-create <shard1.ncrs> [more-shards...] <private-key-file> <manifest.ncmf>".into()); }
         let private_path = Path::new(&paths[paths.len() - 2]);
@@ -711,7 +837,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                 other => return Err(format!("unsupported NCT directory archive version: {other}").into()),
             }
         }
-        _ => return Err("usage: noctyra encrypt <file> <archive.nct> | decrypt <archive.nct> <file> | encrypt-dir <directory> <archive.nct> | decrypt-dir <archive.nct> <new-directory> | cleanup-staging <parent-directory> | carrier-embed <carrier-image> <encrypted-archive.nct> <output-image> | carrier-extract <carrier-image> <output-archive.nct> | constellation-split <archive.nct> <new-output-directory> [fragment-bytes] | constellation-inspect <fragment-1.ncfr> [more-fragments...] | constellation-inspect-images <carrier-image1> [more-carriers...] | constellation-reassemble <output-archive.nct> <fragment-1.ncfr> [fragment-2.ncfr ...] | constellation-encode <archive.nct> <new-output-directory> <cover-image1> [cover-image2 ...] | constellation-reassemble-images <output-archive.nct> <carrier-image1> [carrier-image2 ...] | constellation-recovery-encode <archive.nct> <new-output-directory> <shard-bytes> <parity-shards> <cover-image1> [more-images...] | constellation-recovery-split <archive.nct> <new-output-directory> <shard-bytes> <parity-shards> | constellation-recovery <output-archive.nct> <shard1.ncrs> [more-shards...] | constellation-recovery-images <output-archive.nct> <carrier1.png> [more-carriers...] | vault-create <identity.nckv> | vault-inspect <identity.nckv> | vault-export-public <identity.nckv> <public-key.bin> | vault-rotate <old.nckv> <new.nckv> <rotation.ncrt> | verify-rotation <rotation.ncrt> <trusted-old-public-key.bin> | trust-init <registry.ncts> | trust-add <registry.ncts> <public-key.bin> <label> <expected-fingerprint> | trust-rotate <registry.ncts> <old-fingerprint> <rotation.ncrt> <new-public-key.bin> <label> <expected-new-fingerprint> | trust-list <registry.ncts> | trust-revoke <registry.ncts> <fingerprint> | trust-check <registry.ncts> <fingerprint> | constellation-keygen <private-key-file> <public-key-file> | constellation-manifest-create <shard1.ncrs> [more-shards...] <private-key-file> <manifest.ncmf> | constellation-manifest-verify-recovery <output.nct> <manifest.ncmf> <trusted-public-key-file> <shard1.ncrs> [more-shards...] | constellation-manifest-verify-trusted-recovery <output.nct> <manifest.ncmf> <registry.ncts> <trusted-fingerprint> <shard1.ncrs> [more-shards...]".into()),
+        _ => return Err("usage: noctyra encrypt <file> <archive.nct> | decrypt <archive.nct> <file> | encrypt-dir <directory> <archive.nct> | decrypt-dir <archive.nct> <new-directory> | cleanup-staging <parent-directory> | carrier-embed <carrier-image> <encrypted-archive.nct> <output-image> | carrier-extract <carrier-image> <output-archive.nct> | constellation-split <archive.nct> <new-output-directory> [fragment-bytes] | constellation-inspect <fragment-1.ncfr> [more-fragments...] | constellation-inspect-images <carrier-image1> [more-carriers...] | constellation-reassemble <output-archive.nct> <fragment-1.ncfr> [fragment-2.ncfr ...] | constellation-encode <archive.nct> <new-output-directory> <cover-image1> [cover-image2 ...] | constellation-reassemble-images <output-archive.nct> <carrier-image1> [carrier-image2 ...] | constellation-recovery-encode <archive.nct> <new-output-directory> <shard-bytes> <parity-shards> <cover-image1> [more-images...] | constellation-recovery-split <archive.nct> <new-output-directory> <shard-bytes> <parity-shards> | constellation-recovery <output-archive.nct> <shard1.ncrs> [more-shards...] | constellation-recovery-images <output-archive.nct> <carrier1.png> [more-carriers...] | constellation-send <plaintext-file> <new-package-directory> <identity.nckv> <shard-bytes> <parity-shards> <cover-image1> [more-images...] | constellation-receive <output-plaintext-file> <manifest.ncmf> <registry.ncts> <trusted-fingerprint> <carrier1.png> [more-carriers...] | vault-create <identity.nckv> | vault-inspect <identity.nckv> | vault-export-public <identity.nckv> <public-key.bin> | vault-rotate <old.nckv> <new.nckv> <rotation.ncrt> | verify-rotation <rotation.ncrt> <trusted-old-public-key.bin> | trust-init <registry.ncts> | trust-add <registry.ncts> <public-key.bin> <label> <expected-fingerprint> | trust-rotate <registry.ncts> <old-fingerprint> <rotation.ncrt> <new-public-key.bin> <label> <expected-new-fingerprint> | trust-list <registry.ncts> | trust-revoke <registry.ncts> <fingerprint> | trust-check <registry.ncts> <fingerprint> | constellation-keygen <private-key-file> <public-key-file> | constellation-manifest-create <shard1.ncrs> [more-shards...] <private-key-file> <manifest.ncmf> | constellation-manifest-verify-recovery <output.nct> <manifest.ncmf> <trusted-public-key-file> <shard1.ncrs> [more-shards...] | constellation-manifest-verify-trusted-recovery <output.nct> <manifest.ncmf> <registry.ncts> <trusted-fingerprint> <shard1.ncrs> [more-shards...]".into()),
     }
 
     println!("Operation completed: {}", output.display());
