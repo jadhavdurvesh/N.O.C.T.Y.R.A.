@@ -432,6 +432,28 @@ pub fn parse_signed_manifest(bytes: &[u8]) -> Result<SignedManifest, Constellati
     Ok(SignedManifest { transfer_id, archive_len, data_shards, parity_shards, shard_size, archive_digest, signer_public_key, signature })
 }
 
+/// Sign metadata from an already-created, complete recovery shard set.
+pub fn create_signed_manifest_for_shards<'a, I>(
+    inputs: I, signing_key: &SigningKey,
+) -> Result<Vec<u8>, ConstellationError>
+where I: IntoIterator<Item = &'a [u8]> {
+    let inputs: Vec<&[u8]> = inputs.into_iter().collect();
+    let report = inspect_recovery_shards(inputs.iter().copied())?;
+    if !report.missing_indices.is_empty() { return Err(ConstellationError::MissingFragments); }
+    let first = parse_recovery_shard(inputs[0])?;
+    let body = manifest_body(
+        &first.transfer_id, first.archive_len, first.data_shards,
+        first.parity_shards, first.shard_size, &first.archive_digest,
+    );
+    let mut signed_message = b"NOCTYRA-CONSTELLATION-MANIFEST-V1\\0".to_vec();
+    signed_message.extend_from_slice(&body);
+    let signature = signing_key.sign(&signed_message);
+    let mut output = body;
+    output.extend_from_slice(&signing_key.verifying_key().to_bytes());
+    output.extend_from_slice(&signature.to_bytes());
+    Ok(output)
+}
+
 /// Verify the manifest signature and pin it to an independently trusted key.
 pub fn verify_signed_manifest(bytes: &[u8], trusted_public_key: &[u8; 32]) -> Result<SignedManifest, ConstellationError> {
     let manifest = parse_signed_manifest(bytes)?;
@@ -448,10 +470,10 @@ pub fn verify_signed_manifest(bytes: &[u8], trusted_public_key: &[u8; 32]) -> Re
 /// Ensure every supplied shard is part of the exact transfer described by a verified manifest.
 pub fn verify_manifest_shards<'a, I>(manifest: &SignedManifest, inputs: I) -> Result<RecoveryReport, ConstellationError>
 where I: IntoIterator<Item = &'a [u8]> {
-    let report = inspect_recovery_shards(inputs.into_iter().inspect(|_| {}))?;
-    let mut inputs = inputs.into_iter();
+    let inputs: Vec<&[u8]> = inputs.into_iter().collect();
+    let _ = inspect_recovery_shards(inputs.iter().copied())?;
     let mut seen = vec![false; manifest.data_shards as usize + manifest.parity_shards as usize];
-    for input in inputs.by_ref() {
+    for input in inputs {
         let shard = parse_recovery_shard(input)?;
         if shard.transfer_id != manifest.transfer_id || shard.archive_len != manifest.archive_len
             || shard.data_shards != manifest.data_shards || shard.parity_shards != manifest.parity_shards
@@ -460,7 +482,6 @@ where I: IntoIterator<Item = &'a [u8]> {
         }
         seen[shard.index as usize] = true;
     }
-    let _ = report;
     Ok(RecoveryReport {
         transfer_id: manifest.transfer_id,
         data_shards: manifest.data_shards,
