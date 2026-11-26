@@ -136,8 +136,14 @@ fn validate_archive_path(path: &str) -> Result<(), ContainerError> {
         return Err(ContainerError::InvalidTree);
     }
     for part in path.split('/') {
+        let upper = part.split('.').next().unwrap_or(part).to_ascii_uppercase();
+        let reserved = matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+            || (upper.len() == 4 && (upper.starts_with("COM") || upper.starts_with("LPT"))
+                && matches!(upper.as_bytes()[3], b'1'..=b'9'));
         if part.is_empty() || part == "." || part == ".."
-            || part.ends_with(' ') || part.ends_with('.') || part.chars().any(|ch| matches!(ch, '\\' | '\0' | ':')) {
+            || part.ends_with(' ') || part.ends_with('.')
+            || reserved
+            || part.chars().any(|ch| ch.is_control() || matches!(ch, '\\' | '\0' | ':' | '<' | '>' | '"' | '|' | '?' | '*')) {
             return Err(ContainerError::InvalidTree);
         }
     }
@@ -175,14 +181,14 @@ pub fn extract_directory(password: &[u8], archive: &[u8], destination: impl AsRe
         if kind == EntryKind::Directory && file_len != 0 { return Err(ContainerError::Malformed); }
         let path = std::str::from_utf8(cursor.take(path_len)?).map_err(|_| ContainerError::InvalidTree)?.to_owned();
         validate_archive_path(&path)?;
-        if !names.insert(path.clone()) { return Err(ContainerError::InvalidTree); }
+        if !names.insert(path.to_lowercase()) { return Err(ContainerError::InvalidTree); }
         if kind == EntryKind::File {
             total_file_bytes = total_file_bytes.checked_add(file_len).ok_or(ContainerError::TooLarge)?;
             if total_file_bytes > MAX_TREE_BYTES { return Err(ContainerError::TooLarge); }
         }
         let offset = cursor.offset;
         cursor.take(file_len)?;
-        kinds.insert(path.clone(), kind);
+        kinds.insert(path.to_lowercase(), kind);
         entries.push((path, kind, offset, file_len));
     }
     if cursor.offset != plain.len() { return Err(ContainerError::Malformed); }
@@ -194,7 +200,7 @@ pub fn extract_directory(password: &[u8], archive: &[u8], destination: impl AsRe
         for part in parts.iter().take(parts.len().saturating_sub(1)) {
             if !parent.is_empty() { parent.push('/'); }
             parent.push_str(part);
-            if kinds.get(&parent).is_some_and(|kind| *kind == EntryKind::File) {
+            if kinds.get(&parent.to_lowercase()).is_some_and(|kind| *kind == EntryKind::File) {
                 return Err(ContainerError::InvalidTree);
             }
         }
