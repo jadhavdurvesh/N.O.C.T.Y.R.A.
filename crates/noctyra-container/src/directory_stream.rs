@@ -390,8 +390,9 @@ pub fn cleanup_stale_staging(parent: impl AsRef<Path>) -> Result<usize, Containe
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
             Err(error) => return Err(io_error(error)),
         };
-        if !marker_meta.is_file() || marker_meta.file_type().is_symlink() { continue; }
-        let mut marker_bytes = Vec::new();
+        if !marker_meta.is_file() || marker_meta.file_type().is_symlink()
+            || marker_meta.len() != STAGING_MARKER_CONTENT.len() as u64 { continue; }
+        let mut marker_bytes = Vec::with_capacity(STAGING_MARKER_CONTENT.len());
         File::open(&marker).map_err(io_error)?.read_to_end(&mut marker_bytes).map_err(io_error)?;
         if marker_bytes != STAGING_MARKER_CONTENT { continue; }
         let modified = metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
