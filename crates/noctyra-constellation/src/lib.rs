@@ -2,9 +2,9 @@
 //!
 //! Fragment digests detect accidental corruption. They are not keyed
 //! authentication; the reconstructed NCT archive must still pass NCT AEAD.
-use blake3::Hasher;
 use rand_core::{OsRng, RngCore};
 use thiserror::Error;
+use reed_solomon_erasure::galois_8::ReedSolomon;
 
 pub const PROTOCOL_VERSION: u16 = 1;
 pub const PROTOCOL_NAME: &str = "CONSTELLATION";
@@ -14,6 +14,12 @@ pub const DEFAULT_FRAGMENT_DATA_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_FRAGMENT_DATA_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_FRAGMENT_COUNT: usize = 256;
 pub const MAX_ARCHIVE_BYTES: usize = 1024 * 1024 * 1024;
+pub const RECOVERY_MAGIC: &[u8; 4] = b"NCRS";
+pub const RECOVERY_VERSION: u16 = 1;
+pub const RECOVERY_HEADER_LEN: usize = 4 + 2 + 16 + 8 + 2 + 2 + 2 + 4 + 32 + 32;
+pub const DEFAULT_RECOVERY_DATA_SHARDS: usize = 8;
+pub const DEFAULT_RECOVERY_PARITY_SHARDS: usize = 2;
+pub const MAX_RECOVERY_SHARDS: usize = 255;
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ConstellationError {
@@ -39,6 +45,12 @@ pub enum ConstellationError {
     ArchiveIntegrity,
     #[error("random transfer identifier generation failed")]
     RandomFailure,
+    #[error("recovery shard parameters are invalid")]
+    InvalidRecoveryParameters,
+    #[error("not enough recovery shards are available")]
+    InsufficientRecoveryShards,
+    #[error("Reed-Solomon recovery failed")]
+    RecoveryFailed,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -139,6 +151,189 @@ pub fn fragment_archive_with_id(
 ) -> Result<Vec<Vec<u8>>, ConstellationError> {
     let plan = FragmentPlan::with_id(archive, fragment_bytes, transfer_id)?;
     (0..plan.count()).map(|index| plan.encode(index)).collect()
+}
+
+/// Versioned recovery shard with systematic data and parity roles.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecoveryShard {
+    pub transfer_id: [u8; 16],
+    pub archive_len: u64,
+    pub data_shards: u16,
+    pub parity_shards: u16,
+    pub index: u16,
+    pub shard_size: u32,
+    pub archive_digest: [u8; 32],
+    pub data: Vec<u8>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecoveryReport {
+    pub transfer_id: [u8; 16],
+    pub data_shards: u16,
+    pub parity_shards: u16,
+    pub received_shards: u16,
+    pub missing_indices: Vec<u16>,
+    pub recoverable: bool,
+}
+
+/// Produce systematic Reed-Solomon shards. The original data shards are
+/// preserved byte-for-byte except zero padding on the final shard.
+pub fn create_recovery_shards(
+    archive: &[u8],
+    shard_size: usize,
+    parity_shards: usize,
+) -> Result<Vec<Vec<u8>>, ConstellationError> {
+    let mut transfer_id = [0u8; 16];
+    OsRng.try_fill_bytes(&mut transfer_id).map_err(|_| ConstellationError::RandomFailure)?;
+    create_recovery_shards_with_id(archive, shard_size, parity_shards, transfer_id)
+}
+
+pub fn create_recovery_shards_with_id(
+    archive: &[u8],
+    shard_size: usize,
+    parity_shards: usize,
+    transfer_id: [u8; 16],
+) -> Result<Vec<Vec<u8>>, ConstellationError> {
+    validate_nct_archive(archive)?;
+    if archive.len() > MAX_ARCHIVE_BYTES { return Err(ConstellationError::ArchiveTooLarge); }
+    if shard_size == 0 || shard_size > MAX_FRAGMENT_DATA_BYTES || parity_shards == 0 {
+        return Err(ConstellationError::InvalidRecoveryParameters);
+    }
+    let data_count = archive.len().div_ceil(shard_size);
+    let total = data_count.checked_add(parity_shards).ok_or(ConstellationError::InvalidRecoveryParameters)?;
+    if data_count == 0 || total > MAX_RECOVERY_SHARDS {
+        return Err(ConstellationError::InvalidRecoveryParameters);
+    }
+    let codec = ReedSolomon::new(data_count, parity_shards).map_err(|_| ConstellationError::InvalidRecoveryParameters)?;
+    let mut shards = Vec::with_capacity(total);
+    for chunk in archive.chunks(shard_size) {
+        let mut shard = vec![0u8; shard_size];
+        shard[..chunk.len()].copy_from_slice(chunk);
+        shards.push(shard);
+    }
+    for _ in 0..parity_shards { shards.push(vec![0u8; shard_size]); }
+    codec.encode(&mut shards).map_err(|_| ConstellationError::RecoveryFailed)?;
+    let archive_digest = digest(archive);
+    let mut output = Vec::with_capacity(total);
+    for (index, data) in shards.into_iter().enumerate() {
+        let mut frame = Vec::with_capacity(RECOVERY_HEADER_LEN + shard_size);
+        frame.extend_from_slice(RECOVERY_MAGIC);
+        frame.extend_from_slice(&RECOVERY_VERSION.to_le_bytes());
+        frame.extend_from_slice(&transfer_id);
+        frame.extend_from_slice(&(archive.len() as u64).to_le_bytes());
+        frame.extend_from_slice(&(data_count as u16).to_le_bytes());
+        frame.extend_from_slice(&(parity_shards as u16).to_le_bytes());
+        frame.extend_from_slice(&(index as u16).to_le_bytes());
+        frame.extend_from_slice(&(shard_size as u32).to_le_bytes());
+        frame.extend_from_slice(&archive_digest);
+        frame.extend_from_slice(&digest(&data));
+        frame.extend_from_slice(&data);
+        output.push(frame);
+    }
+    Ok(output)
+}
+
+pub fn parse_recovery_shard(bytes: &[u8]) -> Result<RecoveryShard, ConstellationError> {
+    if bytes.len() < RECOVERY_HEADER_LEN || &bytes[..4] != RECOVERY_MAGIC {
+        return Err(ConstellationError::MalformedFragment);
+    }
+    let version = u16::from_le_bytes([bytes[4], bytes[5]]);
+    if version != RECOVERY_VERSION { return Err(ConstellationError::MalformedFragment); }
+    let mut transfer_id = [0u8; 16];
+    transfer_id.copy_from_slice(&bytes[6..22]);
+    let archive_len = u64::from_le_bytes(bytes[22..30].try_into().map_err(|_| ConstellationError::MalformedFragment)?);
+    let data_shards = u16::from_le_bytes(bytes[30..32].try_into().map_err(|_| ConstellationError::MalformedFragment)?);
+    let parity_shards = u16::from_le_bytes(bytes[32..34].try_into().map_err(|_| ConstellationError::MalformedFragment)?);
+    let index = u16::from_le_bytes(bytes[34..36].try_into().map_err(|_| ConstellationError::MalformedFragment)?);
+    let shard_size = u32::from_le_bytes(bytes[36..40].try_into().map_err(|_| ConstellationError::MalformedFragment)?) as usize;
+    let mut archive_digest = [0u8; 32];
+    archive_digest.copy_from_slice(&bytes[40..72]);
+    let mut shard_digest = [0u8; 32];
+    shard_digest.copy_from_slice(&bytes[72..104]);
+    let total = data_shards as usize + parity_shards as usize;
+    if archive_len == 0 || archive_len > MAX_ARCHIVE_BYTES as u64
+        || data_shards == 0 || parity_shards == 0 || total > MAX_RECOVERY_SHARDS
+        || index as usize >= total || shard_size == 0 || shard_size > MAX_FRAGMENT_DATA_BYTES
+        || bytes.len() != RECOVERY_HEADER_LEN.checked_add(shard_size).ok_or(ConstellationError::MalformedFragment)?
+        || (data_shards as u64 - 1).saturating_mul(shard_size as u64) >= archive_len
+        || (data_shards as u64).saturating_mul(shard_size as u64) < archive_len {
+        return Err(ConstellationError::MalformedFragment);
+    }
+    let data = bytes[RECOVERY_HEADER_LEN..].to_vec();
+    if digest(&data) != shard_digest { return Err(ConstellationError::FragmentIntegrity); }
+    Ok(RecoveryShard { transfer_id, archive_len, data_shards, parity_shards, index, shard_size: shard_size as u32, archive_digest, data })
+}
+
+pub fn inspect_recovery_shards<'a, I>(inputs: I) -> Result<RecoveryReport, ConstellationError>
+where I: IntoIterator<Item = &'a [u8]> {
+    let mut shards = Vec::new();
+    for input in inputs { shards.push(parse_recovery_shard(input)?); }
+    let first = shards.first().ok_or(ConstellationError::InsufficientRecoveryShards)?;
+    let total = first.data_shards as usize + first.parity_shards as usize;
+    let mut seen = vec![false; total];
+    for shard in &shards {
+        if shard.transfer_id != first.transfer_id || shard.archive_len != first.archive_len
+            || shard.data_shards != first.data_shards || shard.parity_shards != first.parity_shards
+            || shard.shard_size != first.shard_size || shard.archive_digest != first.archive_digest {
+            return Err(ConstellationError::TransferMismatch);
+        }
+        let slot = &mut seen[shard.index as usize];
+        if *slot { return Err(ConstellationError::DuplicateFragment(shard.index as u32)); }
+        *slot = true;
+    }
+    let missing_indices: Vec<u16> = seen.iter().enumerate().filter_map(|(i, present)| (!present).then_some(i as u16)).collect();
+    Ok(RecoveryReport {
+        transfer_id: first.transfer_id,
+        data_shards: first.data_shards,
+        parity_shards: first.parity_shards,
+        received_shards: shards.len() as u16,
+        recoverable: shards.len() >= first.data_shards as usize,
+        missing_indices,
+    })
+}
+
+/// Reconstruct the archive when any k of n valid shards are available.
+pub fn recover_archive<'a, I>(inputs: I) -> Result<Vec<u8>, ConstellationError>
+where I: IntoIterator<Item = &'a [u8]> {
+    let mut received = Vec::new();
+    for input in inputs { received.push(parse_recovery_shard(input)?); }
+    let first = received.first().ok_or(ConstellationError::InsufficientRecoveryShards)?;
+    let data_count = first.data_shards as usize;
+    let parity_count = first.parity_shards as usize;
+    let shard_size = first.shard_size as usize;
+    let total = data_count + parity_count;
+    if received.len() < data_count { return Err(ConstellationError::InsufficientRecoveryShards); }
+    let archive_len = usize::try_from(first.archive_len).map_err(|_| ConstellationError::ArchiveTooLarge)?;
+    let transfer_id = first.transfer_id;
+    let archive_digest = first.archive_digest;
+    let archive_len_u64 = first.archive_len;
+    let mut shards: Vec<Option<Vec<u8>>> = (0..total).map(|_| None).collect();
+    for shard in received {
+        if shard.transfer_id != transfer_id || shard.archive_len != archive_len_u64
+            || shard.data_shards as usize != data_count || shard.parity_shards as usize != parity_count
+            || shard.shard_size as usize != shard_size || shard.archive_digest != archive_digest {
+            return Err(ConstellationError::TransferMismatch);
+        }
+        let slot = &mut shards[shard.index as usize];
+        if slot.is_some() { return Err(ConstellationError::DuplicateFragment(shard.index as u32)); }
+        *slot = Some(shard.data);
+    }
+    let codec = ReedSolomon::new(data_count, parity_count).map_err(|_| ConstellationError::InvalidRecoveryParameters)?;
+    codec.reconstruct(&mut shards).map_err(|_| ConstellationError::RecoveryFailed)?;
+    let complete: Vec<Vec<u8>> = shards.into_iter().map(|shard| shard.ok_or(ConstellationError::RecoveryFailed)).collect::<Result<_, _>>()?;
+    if !codec.verify(&complete).map_err(|_| ConstellationError::RecoveryFailed)? {
+        return Err(ConstellationError::RecoveryFailed);
+    }
+    let mut archive = Vec::with_capacity(archive_len);
+    for shard in complete.iter().take(data_count) {
+        let remaining = archive_len.saturating_sub(archive.len());
+        archive.extend_from_slice(&shard[..remaining.min(shard.len())]);
+    }
+    if archive.len() != archive_len || digest(&archive) != archive_digest {
+        return Err(ConstellationError::ArchiveIntegrity);
+    }
+    validate_nct_archive(&archive)?;
+    Ok(archive)
 }
 
 /// Parse and validate one untrusted fragment before retaining its payload.
@@ -281,6 +476,29 @@ mod tests {
         let b = fragment_archive_with_id(&archive(), 1024, [2u8; 16]).unwrap();
         let mixed = [a[0].as_slice(), b[1].as_slice()];
         assert_eq!(reassemble_fragments(mixed), Err(ConstellationError::TransferMismatch));
+    }
+
+    #[test]
+    fn recovery_shards_reconstruct_with_missing_data_and_parity() {
+        let original = archive();
+        let shards = create_recovery_shards_with_id(&original, 1024, 3, [42u8; 16]).unwrap();
+        let selected: Vec<&[u8]> = shards.iter().enumerate()
+            .filter(|(i, _)| !matches!(i, 1 | 4 | 11))
+            .map(|(_, shard)| shard.as_slice()).collect();
+        assert_eq!(recover_archive(selected).unwrap(), original);
+    }
+
+    #[test]
+    fn recovery_reports_threshold_and_rejects_corruption() {
+        let shards = create_recovery_shards_with_id(&archive(), 1024, 2, [43u8; 16]).unwrap();
+        let report = inspect_recovery_shards(shards.iter().take(3).map(Vec::as_slice)).unwrap();
+        assert!(report.recoverable);
+        let insufficient = shards.iter().take(2).map(Vec::as_slice);
+        assert_eq!(recover_archive(insufficient), Err(ConstellationError::InsufficientRecoveryShards));
+        let mut corrupt = shards[0].clone();
+        let last = corrupt.len() - 1;
+        corrupt[last] ^= 1;
+        assert_eq!(parse_recovery_shard(&corrupt), Err(ConstellationError::FragmentIntegrity));
     }
 
     #[test]
