@@ -22,7 +22,7 @@ mod stream;
 pub use stream::{decrypt_stream, encrypt_stream, STREAM_CHUNK_SIZE};
 
 mod directory_stream;
-pub use directory_stream::{decrypt_directory_stream, encrypt_directory_stream};
+pub use directory_stream::{cleanup_stale_staging, decrypt_directory_stream, encrypt_directory_stream, validate_directory_manifest};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ContainerError {
